@@ -8,7 +8,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	autosizev1 "github.com/muandane/saturdai/api/v1"
@@ -20,7 +19,7 @@ func benignStatusAPIErr(err error) bool {
 	if err == nil {
 		return false
 	}
-	if apierrors.IsNotFound(err) || apierrors.IsGone(err) {
+	if apierrors.IsNotFound(err) || apierrors.IsGone(err) || apierrors.IsResourceExpired(err) {
 		return true
 	}
 	// etcd/apiserver: UID precondition failed, object identity changed (common delete race).

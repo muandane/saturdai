@@ -8,7 +8,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -46,10 +45,10 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 	if err != nil {
 		if target.IsNotFound(err) {
 			setCondition(profile, autosizev1.ConditionTypeTargetResolved, metav1.ConditionFalse, "NotFound", "target workload not found")
-			return r.statusUpdate(ctx, profile)
+			return r.persistStatus(ctx, profile)
 		}
 		setCondition(profile, autosizev1.ConditionTypeTargetResolved, metav1.ConditionFalse, "Error", err.Error())
-		if uerr := r.statusUpdate(ctx, profile); uerr != nil {
+		if uerr := r.persistStatus(ctx, profile); uerr != nil {
 			return uerr
 		}
 		return err
@@ -176,7 +175,7 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 	profile.Status.LastEvaluated = &t
 	setCondition(profile, autosizev1.ConditionTypeMetricsAvailable, metav1.ConditionTrue, "Collected", "metrics processed")
 
-	if err := r.refreshStatus(ctx, profile); err != nil {
+	if err := r.persistStatus(ctx, profile); err != nil {
 		return err
 	}
 
@@ -188,7 +187,7 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 		return err
 	}
 	profile.Status.LastApplied = &metav1.Time{Time: time.Now()}
-	return r.refreshStatus(ctx, profile)
+	return r.persistStatus(ctx, profile)
 }
 
 type minMax struct {
