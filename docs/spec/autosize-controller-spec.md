@@ -579,7 +579,7 @@ No Prometheus. No VPA. **No external observability database** — optional **in-
 - Hour-of-day bucketing (24 sketch slots per container)
 - Automatic burst/off-peak profile switching
 
-**Shipped today:** four **UTC quadrant** sketches per resource and **Holt–Winters** hourly forecasts (§6) are **not** the Phase 5 auto–profile-switching feature; they support quantiles and headroom only.
+**Shipped today:** four **UTC quadrant** sketches per resource and **Holt–Winters** hourly forecasts (§6) are **not** the Phase 5 auto–profile-switching feature; they support quantiles and headroom only. **Engineering contract** (shipped subset vs Phase 5 backlog): [`LLD-400`](../LLD/autosize/400-time-based-patterns.md).
 
 **Low-level designs:** Per-subsystem engineering contracts (traceability, APIs, test plans) live under [`docs/LLD/autosize/`](../LLD/autosize/README.md), indexed by phase and dependency order.
 

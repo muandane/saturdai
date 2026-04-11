@@ -100,7 +100,7 @@ func (r *WorkloadProfileReconciler) ingestContainerMetrics(
 	}
 
 	utc := r.now().UTC()
-	quad := utc.Hour() / 6
+	quad := utcQuadrantIndex(r.now())
 	if err := aggregate.Update(aggregate.ResourceSample{
 		Value:     cpuMilli,
 		GetSketch: func() string { return quadSketchGet(st.Stats.CPU.QuadrantSketches, quad) },
