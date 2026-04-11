@@ -187,6 +187,59 @@ func TestApply_PauseDownsize_blocksDecreaseBelowCurrent(t *testing.T) {
 	}
 }
 
+func TestApply_TrendGuard_skipsMemoryClampsAndSetsSkipMemory(t *testing.T) {
+	profile := &autosizev1.WorkloadProfile{
+		Status: autosizev1.WorkloadProfileStatus{
+			Containers: []autosizev1.ProfileContainerStatus{
+				{
+					Name: "app",
+					Stats: autosizev1.ContainerResourceStats{
+						Memory: autosizev1.MemoryStats{SlopePositive: true},
+					},
+				},
+			},
+		},
+	}
+	cur := map[string]corev1.ResourceRequirements{
+		"app": {
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1000m"),
+				corev1.ResourceMemory: resource.MustParse("100Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2000m"),
+				corev1.ResourceMemory: resource.MustParse("200Mi"),
+			},
+		},
+	}
+	base := []autosizev1.Recommendation{
+		{
+			ContainerName: "app",
+			CPURequest:    resource.MustParse("100m"),
+			MemoryRequest: resource.MustParse("10Mi"),
+			CPULimit:      resource.MustParse("100m"),
+			MemoryLimit:   resource.MustParse("10Mi"),
+			Rationale:     "balanced: test",
+		},
+	}
+	res := Apply(profile, base, cur, podsignals.NewSnapshot(), time.Unix(0, 0), false)
+	if !res.SkipMemory["app"] {
+		t.Fatal("expected SkipMemory app=true for slopePositive")
+	}
+	r := res.Recommendations[0]
+	if !strings.Contains(r.Rationale, "trend_guard") {
+		t.Fatalf("rationale should note trend_guard: %q", r.Rationale)
+	}
+	// Engine memory values pass through without decrease clamp when skipMem (not lowered toward 70% floor).
+	if r.MemoryRequest.Cmp(resource.MustParse("10Mi")) != 0 {
+		t.Fatalf("memory request got %s want 10Mi (no clamp under trend guard)", r.MemoryRequest.String())
+	}
+	// CPU still clamped.
+	if r.CPURequest.String() != "700m" {
+		t.Fatalf("CPU request got %s want 700m", r.CPURequest.String())
+	}
+}
+
 func TestApply_PauseDownsize_allowsIncreaseAboveCurrent(t *testing.T) {
 	profile := &autosizev1.WorkloadProfile{}
 	cur := map[string]corev1.ResourceRequirements{

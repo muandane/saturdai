@@ -67,10 +67,14 @@ func (r *WorkloadProfileReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		logger.V(1).Info("Skipping reconcile: WorkloadProfile is deleting")
 		return ctrl.Result{}, nil
 	}
-	if err := r.reconcile(ctx, profile); err != nil {
+	customRequeue, err := r.reconcile(ctx, profile)
+	if err != nil {
 		logger.Error(err, "reconcile WorkloadProfile")
 		// Do not set RequeueAfter when err != nil; controller-runtime ignores it.
 		return ctrl.Result{}, err
+	}
+	if customRequeue != nil {
+		return ctrl.Result{RequeueAfter: *customRequeue}, nil
 	}
 	return ctrl.Result{RequeueAfter: requeueAfter(profile)}, nil
 }

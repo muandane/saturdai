@@ -16,6 +16,14 @@ Wire the **read-only** reconciliation path: load profile, resolve target (020), 
 
 **In scope:** Controller-runtime `Reconcile`, owner references, rate limiting, feature flag `ACTUATION_ENABLED=false`, conditions (`MetricsAvailable`, `TargetResolved`, `ProfileReady`).
 
+**Conditions:**
+
+| Type | True when |
+|------|-----------|
+| `TargetResolved` | Deployment/StatefulSet target exists and was resolved |
+| `MetricsAvailable` | At least one kubelet `/stats/summary` was fetched for this cycle when pods are scheduled to nodes, and the full metrics/recommendation pipeline ran |
+| `ProfileReady` | `TargetResolved` **and** `MetricsAvailable` are both True (composite readiness for actuation decisions) |
+
 **Out of scope:** Deployment PATCH (090), webhook (110).
 
 ## Dependencies
@@ -51,9 +59,10 @@ Wire the **read-only** reconciliation path: load profile, resolve target (020), 
 
 | Failure | Behavior |
 |---------|----------|
-| Kubelet partial | Update what we have; condition `MetricsAvailable=Partial` |
+| Kubelet: all fetches fail for nodes with scheduled pods | `MetricsAvailable=False` (reason `KubeletUnavailable`), `ProfileReady=False`, **no** `lastEvaluated` advance; persist status; requeue after `max(10s, collectionInterval)` |
+| Kubelet partial (some nodes OK) | Process stats from successful nodes; `MetricsAvailable=True` when pipeline completes |
 | Status conflict | Retry with backoff |
-| Target missing | Clear recommendations optional; keep last stats or mark stale — **recommend** keep last with condition |
+| Target missing | `TargetResolved=False`, `ProfileReady=False`; persist status |
 
 ## Security / RBAC
 
