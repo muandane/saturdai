@@ -1,6 +1,6 @@
 module github.com/muandane/saturdai
 
-go 1.25.3
+go 1.26.2
 
 require (
 	github.com/DataDog/sketches-go v1.4.8
