@@ -32,7 +32,7 @@ Last reviewed: 2026-04-11 — includes learned-state pipeline (ConfigMap `mlstat
 | Safety: OOM override mem×1.5, bypass cooldown | §9, 070 | Done | Lookback ~10m in code |
 | Safety: high CPU throttle override | §9, 070 | Done | >50% throttled/usage |
 | Safety: restart spike → pause downsizing 2 cycles | §9, 070 | Done | `delta > 3` after baseline → `status.downsizePauseCyclesRemaining`; safety holds decreases (`internal/safety`); counter decremented each reconcile (`restart_pause.go`) |
-| Trend guard: `slopePositive` blocks memory downsize | §6, §9, 070 | Partial | Uses `EMA_short > EMA_long * 1.01`, not spec counter-over-N |
+| Trend guard: `slopePositive` blocks memory downsize | §6, §9, 070 | Done | `status.containers[].stats.memory.slopeStreak` + prior `EMA_short` from last reconcile; `N=5` in `internal/aggregate/slope.go`; tests in `slope_test.go` |
 | `metricsRecommendations` vs `recommendations` | §4, §9, 060–070 | Done | Pre/post safety |
 | Reconcile loop, status update | §10, 080 | Done | `internal/controller/reconcile.go` |
 | Actuation: PATCH workload template | §11, 090 | Done | `internal/actuate`; gated by `AUTOSIZE_ACTUATION=true` |
