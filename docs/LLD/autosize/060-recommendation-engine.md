@@ -82,7 +82,7 @@ func ComputeRecommendation(in RecommendInput) (Recommendation, error)
 
 `cpuLimit = max(quantileLimit, predictionCpu)` where `predictionCpu = cpuEMALong + k*(cpuEMAShort - cpuEMALong)` in millicores, then convert to Quantity.
 
-- Same optional adjustment for memory **unless** slopePositive (handled in 070 by skipping memory recommendation entirely).
+- Apply the same optional prediction adjustment to memory limits as for CPU (`memLimit = max(quantileLimit, predictionMem)` using `MemShort` / `MemLong` and `k`). **Trend guard** (`slopePositive`) is **not** applied in 060; [070](./070-safety-layer.md) enforces it per spec §9 (skip memory decrease clamps, `SkipMemory` for actuation).
 
 ### Clamping
 

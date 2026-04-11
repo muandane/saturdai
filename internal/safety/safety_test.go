@@ -234,6 +234,12 @@ func TestApply_TrendGuard_skipsMemoryClampsAndSetsSkipMemory(t *testing.T) {
 	if r.MemoryRequest.Cmp(resource.MustParse("10Mi")) != 0 {
 		t.Fatalf("memory request got %s want 10Mi (no clamp under trend guard)", r.MemoryRequest.String())
 	}
+	// Under trend guard, safe recommendations may show memory below the live template (status traceability);
+	// actuation uses SkipMemory so the template is not patched down (see actuate tests).
+	curMem := cur["app"].Requests[corev1.ResourceMemory]
+	if r.MemoryRequest.Cmp(curMem) >= 0 {
+		t.Fatalf("expected memory request below template for traceability, got %s vs template %s", r.MemoryRequest.String(), curMem.String())
+	}
 	// CPU still clamped.
 	if r.CPURequest.String() != "700m" {
 		t.Fatalf("CPU request got %s want 700m", r.CPURequest.String())

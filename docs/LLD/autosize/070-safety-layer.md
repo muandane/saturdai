@@ -78,6 +78,8 @@ For each quantity (request/limit): if `new < current`, require `new >= current *
 
 - If `slopePositive` for container memory: **omit memory from actuation** (PATCH leaves template memory unchanged — 090); **do not** apply 70% decrease clamps to memory for that container. Engine values may still appear in `status.metricsRecommendations` / `status.recommendations` with rationale `trend_guard: memory slope positive` (spec §9).
 
+**Status vs live template:** `status.recommendations` memory for that container can differ from the workload template (e.g. engine-proposed downsize without the 70% floor) while PATCH leaves template memory unchanged until the guard clears — intentional traceability, not “strip from status.”
+
 ### Rationale
 
 - Join parts: `mode`, key percentiles, override tags, cooldown skip reason.
@@ -103,7 +105,7 @@ For each quantity (request/limit): if `new < current`, require `new >= current *
 - **Table tests:** cooldown boundary ±1s; 30% clamp from 1000m → proposed 600m → expect 700m.
 - **Overrides:** OOM sets mem limit; throttle ratio 0.51 triggers CPU bump.
 - **Restart spike:** sets pause flag; two reconciles decrement.
-- **Slope:** memory fields stripped from patch intent.
+- **Slope:** memory omitted from PATCH (`SkipMemory`); template memory unchanged.
 
 ## Rollout / migration
 

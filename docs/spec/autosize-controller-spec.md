@@ -342,6 +342,8 @@ When `slopePositive == true` for a container’s memory aggregate (§7):
 
 This is **not** “strip memory from status”; it is **freeze memory on the workload** until the trend guard clears.
 
+- **Wording:** Informal “skip memory recommendation” here means **skip applying memory decrease clamps and skip memory PATCH** — not “omit memory from the engine output” in 060.
+
 ### Rationale Field
 
 Every recommendation in `status.recommendations[].rationale` must be a human-readable string explaining the decision. **`status.recommendations`** holds values **after** safety rules (including the 30% decrease floor). Sketch-only outputs are mirrored on **`status.metricsRecommendations`** (pre-safety) when present so operators can compare engine output to effective values.
