@@ -52,6 +52,10 @@ func (r *WorkloadProfileReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if err := r.Client.Get(ctx, req.NamespacedName, profile); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	if !profile.DeletionTimestamp.IsZero() {
+		logger.V(1).Info("Skipping reconcile: WorkloadProfile is deleting")
+		return ctrl.Result{}, nil
+	}
 	if err := r.reconcile(ctx, profile); err != nil {
 		logger.Error(err, "reconcile WorkloadProfile")
 		// Do not set RequeueAfter when err != nil; controller-runtime ignores it.

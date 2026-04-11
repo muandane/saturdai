@@ -1,6 +1,7 @@
 package safety
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -35,9 +36,8 @@ func TestClampDecreaseCPU_NoClampWhenHigher(t *testing.T) {
 func TestClampDecreaseMemory_BytesBinarySI(t *testing.T) {
 	cur := resource.MustParse("100Mi")
 	newQ := resource.MustParse("10Mi")
-	got := clampDecreaseMemory(newQ, cur)
-	minBytes := int64(float64(cur.Value()) * 0.7)
-	want := *resource.NewQuantity(minBytes, cur.Format)
+	got := clampDecreaseMemory(newQ, cur, false)
+	want := resource.MustParse("70Mi")
 	if got.Cmp(want) != 0 {
 		t.Fatalf("got %s (%d) want %s (%d)", got.String(), got.Value(), want.String(), want.Value())
 	}
@@ -51,7 +51,7 @@ func TestClampDecreaseMemory_NotMilliScaled(t *testing.T) {
 	// If we wrongly used MilliValue for memory, 100Mi would be misinterpreted and output would look like huge "m" quantities.
 	cur := resource.MustParse("128Mi")
 	newQ := resource.MustParse("1Mi")
-	got := clampDecreaseMemory(newQ, cur)
+	got := clampDecreaseMemory(newQ, cur, false)
 	if got.Value() < cur.Value()/2 {
 		t.Fatalf("implausible result %s from cur %s new %s — possible milli/bytes mix-up", got.String(), cur.String(), newQ.String())
 	}
@@ -60,9 +60,20 @@ func TestClampDecreaseMemory_NotMilliScaled(t *testing.T) {
 func TestClampDecreaseMemory_NoClampWhenHigher(t *testing.T) {
 	cur := resource.MustParse("64Mi")
 	newQ := resource.MustParse("128Mi")
-	got := clampDecreaseMemory(newQ, cur)
+	got := clampDecreaseMemory(newQ, cur, false)
 	if got.Cmp(newQ) != 0 {
 		t.Fatalf("got %s want %s", got.String(), newQ.String())
+	}
+}
+
+func TestClampDecreaseMemory_LimitUsesCeilMiB(t *testing.T) {
+	cur := resource.MustParse("256Mi")
+	newQ := resource.MustParse("1Mi")
+	got := clampDecreaseMemory(newQ, cur, true)
+	minV := int64(math.Ceil(float64(cur.Value()) * 0.7))
+	want := ceilMiB(minV)
+	if got.Cmp(want) != 0 {
+		t.Fatalf("limit clamp got %s want %s (ceil MiB of %d)", got.String(), want.String(), minV)
 	}
 }
 
@@ -93,11 +104,9 @@ func TestApply_UsesSeparateCPUAndMemoryClamps(t *testing.T) {
 	if r.CPURequest.String() != "700m" {
 		t.Fatalf("CPU request got %s want 700m", r.CPURequest.String())
 	}
-	memCur := resource.MustParse("100Mi")
-	minMem := int64(float64(memCur.Value()) * 0.7)
-	mr := r.MemoryRequest
-	if mr.Value() != minMem {
-		t.Fatalf("memory request got %d want %d", mr.Value(), minMem)
+	wantMem := resource.MustParse("70Mi")
+	if r.MemoryRequest.Cmp(wantMem) != 0 {
+		t.Fatalf("memory request got %s want %s", r.MemoryRequest.String(), wantMem.String())
 	}
 	if !strings.Contains(r.Rationale, "safety: decrease_step cpu_request") {
 		t.Fatalf("rationale should note cpu_request clamp: %q", r.Rationale)

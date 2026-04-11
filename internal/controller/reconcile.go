@@ -37,35 +37,6 @@ func requeueAfter(profile *autosizev1.WorkloadProfile) time.Duration {
 	return time.Duration(defaults.CollectionInterval(profile.Spec)) * time.Second
 }
 
-// statusUpdate writes status for the in-memory profile object (same RV as reconcile start).
-func (r *WorkloadProfileReconciler) statusUpdate(ctx context.Context, profile *autosizev1.WorkloadProfile) error {
-	err := r.Client.Status().Update(ctx, profile)
-	if err == nil {
-		return nil
-	}
-	if apierrors.IsNotFound(err) {
-		return nil
-	}
-	return err
-}
-
-// refreshStatus re-fetches the WorkloadProfile then applies profile.Status, avoiding lost updates after long work.
-func (r *WorkloadProfileReconciler) refreshStatus(ctx context.Context, profile *autosizev1.WorkloadProfile) error {
-	key := client.ObjectKeyFromObject(profile)
-	fresh := &autosizev1.WorkloadProfile{}
-	if err := r.Client.Get(ctx, key, fresh); err != nil {
-		return client.IgnoreNotFound(err)
-	}
-	fresh.Status = profile.Status
-	if err := r.Client.Status().Update(ctx, fresh); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
-		return err
-	}
-	return nil
-}
-
 func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *autosizev1.WorkloadProfile) error {
 	logger := log.FromContext(ctx)
 	ns := profile.Namespace

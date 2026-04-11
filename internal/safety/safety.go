@@ -32,6 +32,10 @@ func Apply(
 ) Result {
 	out := make([]autosizev1.Recommendation, len(base))
 	copy(out, base)
+	for i := range out {
+		out[i].MemoryLimit = ceilMiB(out[i].MemoryLimit.Value())
+		out[i].MemoryRequest = floorMiB(out[i].MemoryRequest.Value())
+	}
 
 	skipMem := map[string]bool{}
 	for i := range out {
@@ -49,7 +53,7 @@ func Apply(
 		if t, ok := sig.LastOOMKill[name]; ok && t != nil && now.Sub(t.Time) < 10*time.Minute {
 			q := out[i].MemoryLimit
 			nv := int64(math.Ceil(float64(q.Value()) * 1.5))
-			out[i].MemoryLimit = *resource.NewQuantity(nv, q.Format)
+			out[i].MemoryLimit = ceilMiB(nv)
 			out[i].Rationale = out[i].Rationale + "; override: OOMKill recent"
 		}
 	}
@@ -79,7 +83,7 @@ func Apply(
 			}
 			if m := cur.Requests.Memory(); m != nil && !skipMem[name] {
 				before := out[i].MemoryRequest
-				after := clampDecreaseMemory(before, *m)
+				after := clampDecreaseMemory(before, *m, false)
 				out[i].MemoryRequest = after
 				out[i].Rationale = appendDecreaseStepNote(out[i].Rationale, "memory_request", before, after, *m)
 			}
@@ -93,7 +97,7 @@ func Apply(
 			}
 			if m := cur.Limits.Memory(); m != nil && !skipMem[name] {
 				before := out[i].MemoryLimit
-				after := clampDecreaseMemory(before, *m)
+				after := clampDecreaseMemory(before, *m, true)
 				out[i].MemoryLimit = after
 				out[i].Rationale = appendDecreaseStepNote(out[i].Rationale, "memory_limit", before, after, *m)
 			}
@@ -159,18 +163,43 @@ func clampDecreaseCPU(newQ, curQ resource.Quantity) resource.Quantity {
 	return newQ
 }
 
-// clampDecreaseMemory applies a 70% floor of current when the new recommendation is lower (bytes; BinarySI).
-func clampDecreaseMemory(newQ, curQ resource.Quantity) resource.Quantity {
+// clampDecreaseMemory applies a 70% floor of current when the new recommendation is lower.
+// isLimit selects ceil vs floor to whole MiB for kubectl-friendly BinarySI serialization.
+func clampDecreaseMemory(newQ, curQ resource.Quantity, isLimit bool) resource.Quantity {
 	if newQ.Cmp(curQ) >= 0 {
-		return newQ
+		return memoryQtyAligned(newQ.Value(), isLimit)
 	}
 	if curQ.IsZero() {
-		return newQ
+		return memoryQtyAligned(newQ.Value(), isLimit)
 	}
 	nv, cv := newQ.Value(), curQ.Value()
 	minV := int64(math.Ceil(float64(cv) * 0.7))
 	if nv < minV {
-		return *resource.NewQuantity(minV, curQ.Format)
+		return memoryQtyAligned(minV, isLimit)
 	}
-	return newQ
+	return memoryQtyAligned(nv, isLimit)
+}
+
+const memoryMib = int64(1 << 20)
+
+func ceilMiB(bytes int64) resource.Quantity {
+	if bytes <= 0 {
+		return *resource.NewQuantity(0, resource.BinarySI)
+	}
+	n := (bytes + memoryMib - 1) / memoryMib
+	return *resource.NewQuantity(n*memoryMib, resource.BinarySI)
+}
+
+func floorMiB(bytes int64) resource.Quantity {
+	if bytes <= 0 {
+		return *resource.NewQuantity(0, resource.BinarySI)
+	}
+	return *resource.NewQuantity((bytes/memoryMib)*memoryMib, resource.BinarySI)
+}
+
+func memoryQtyAligned(bytes int64, isLimit bool) resource.Quantity {
+	if isLimit {
+		return ceilMiB(bytes)
+	}
+	return floorMiB(bytes)
 }
