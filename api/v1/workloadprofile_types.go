@@ -154,8 +154,10 @@ type WorkloadProfileStatus struct {
 	// +optional
 	MetricsRecommendations []Recommendation `json:"metricsRecommendations,omitempty"`
 
-	// Recommendations are effective requests/limits after safety.Apply, with human-readable rationale.
-	// These match what actuation and the pod webhook apply when enabled.
+	// Recommendations are requests/limits after safety.Apply, with human-readable rationale.
+	// CPU (and memory when actuation is not skipping memory) match what actuation and the pod webhook apply when enabled.
+	// Under trend guard (slopePositive), memory may still reflect uncapped engine intent while the live template stays frozen;
+	// rationale includes "trend_guard" and actuation omits memory PATCH for that container (see spec §9).
 	// +kubebuilder:validation:MaxItems=20
 	// +optional
 	Recommendations []Recommendation `json:"recommendations,omitempty"`
