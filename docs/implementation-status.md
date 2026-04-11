@@ -26,7 +26,7 @@ Last reviewed: 2026-04-11 — includes learned-state pipeline (ConfigMap `mlstat
 | Pod signals: OOM from pod status | §5, 050 | Done | Merged pod `lastState` OOM `finishedAt` (max per container) in `status.containers[].stats.lastOOMKill`; safety uses same snapshot |
 | Pod signals: restart count & delta | §5, §9, 050 | Done | Max restart per container in `status.containers[].stats.restartCount`; delta vs prior after `lastEvaluated` baseline (`internal/controller/reconcile.go`, `internal/podsignals`) |
 | Four modes + percentile tables | §8, 060 | Done | Strategy `Engine` + `biasedEngine` in `internal/recommend` (`engine.go`, `strategies.go`, `biased.go`, `bias.go`); `Compute` delegates to `New(..., NoopBias{})` |
-| Prediction `EMA_long + k * (EMA_short - EMA_long)` | §6–7, 060 | Not started | Percentiles only; `k` unused |
+| Prediction `EMA_long + k * (EMA_short - EMA_long)` | §6–7, 060 | Done | `mergeLimitsWithEMAPrediction` in `internal/recommend` (limits only, after quantiles/forecast/peak); rationales include `k` and `cpu_pred`/`mem_pred`; tests in `recommend_test.go` |
 | Safety: max 30% decrease | §9, 070 | Done | Implemented as ≥70% of current (`internal/safety`) |
 | Safety: cooldown vs `lastApplied` | §9, 070 | Done | |
 | Safety: OOM override mem×1.5, bypass cooldown | §9, 070 | Done | Lookback ~10m in code |
