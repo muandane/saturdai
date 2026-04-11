@@ -42,6 +42,10 @@ func (r *WorkloadProfileReconciler) ingestContainerMetrics(
 	}); err != nil {
 		return 0, 0, err
 	}
+	prevMemShort := st.Stats.Memory.EMAShort
+	priorMemObserved := st.Stats.Memory.LastUpdated != nil
+	priorSlopeStreak := st.Stats.Memory.SlopeStreak
+
 	if err := aggregate.Update(aggregate.ResourceSample{
 		Value:     memBytes,
 		GetSketch: func() string { return st.Stats.Memory.Sketch },
@@ -54,6 +58,14 @@ func (r *WorkloadProfileReconciler) ingestContainerMetrics(
 	}); err != nil {
 		return 0, 0, err
 	}
+
+	st.Stats.Memory.SlopeStreak, st.Stats.Memory.SlopePositive = aggregate.UpdateMemorySlope(
+		prevMemShort,
+		st.Stats.Memory.EMAShort,
+		priorSlopeStreak,
+		aggregate.DefaultMemorySlopeCycles,
+		priorMemObserved,
+	)
 
 	cu := ensureContainerCUSUM(mlState, cname)
 	if cu.CPU.Update(cpuMilli, cpuLongBefore, changepoint.DefaultCPUConfig) {
@@ -119,6 +131,5 @@ func (r *WorkloadProfileReconciler) ingestContainerMetrics(
 	forecastCPU = hw.CPU.Update(cpuMilli, hour)
 	forecastMem = hw.Memory.Update(memBytes, hour)
 
-	st.Stats.Memory.SlopePositive = st.Stats.Memory.EMAShort > st.Stats.Memory.EMALong*1.01
 	return forecastCPU, forecastMem, nil
 }

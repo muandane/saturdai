@@ -105,8 +105,13 @@ type MemoryStats struct {
 	// +optional
 	QuadrantSketches []string `json:"quadrantSketches,omitempty"`
 	// +optional
-	LastUpdated   *metav1.Time `json:"lastUpdated,omitempty"`
-	SlopePositive bool         `json:"slopePositive"`
+	LastUpdated *metav1.Time `json:"lastUpdated,omitempty"`
+	// SlopeStreak counts consecutive reconciles where memory EMAShort strictly increased vs the prior
+	// persisted reconcile (spec §6). Persisted for controller restart safety. Resets when not increasing.
+	// +optional
+	SlopeStreak int32 `json:"slopeStreak,omitempty"`
+	// SlopePositive is true when SlopeStreak >= the controller threshold (default 5 cycles); blocks memory downsize (070).
+	SlopePositive bool `json:"slopePositive"`
 }
 
 // ContainerResourceStats is observed stats for one logical container (pod template name).

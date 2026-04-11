@@ -267,7 +267,16 @@ spec:
                             sketch:
                               type: string
                             slopePositive:
+                              description: SlopePositive is true when SlopeStreak
+                                >= the controller threshold (default 5 cycles); blocks
+                                memory downsize (070).
                               type: boolean
+                            slopeStreak:
+                              description: |-
+                                SlopeStreak counts consecutive reconciles where memory EMAShort strictly increased vs the prior
+                                persisted reconcile (spec §6). Persisted for controller restart safety. Resets when not increasing.
+                              format: int32
+                              type: integer
                           required:
                           - emaLong
                           - emaShort

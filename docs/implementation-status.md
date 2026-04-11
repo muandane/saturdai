@@ -1,7 +1,8 @@
 # Autosize controller — implementation status
 
 **Authoritative requirements:** [spec/autosize-controller-spec.md](./spec/autosize-controller-spec.md)  
-**LLD index:** [LLD/autosize/README.md](./LLD/autosize/README.md)
+**LLD index:** [LLD/autosize/README.md](./LLD/autosize/README.md)  
+**GitHub:** [muandane/saturdai](https://github.com/muandane/saturdai) — tracking issues use `[#NN](https://github.com/muandane/saturdai/issues/NN)` in **Issue** columns below.
 
 Last reviewed: 2026-04-11 — includes learned-state pipeline (ConfigMap `mlstate-*`, CUSUM, feedback bias, quadrant sketches, Holt–Winters forecasts).
 
@@ -32,7 +33,7 @@ Last reviewed: 2026-04-11 — includes learned-state pipeline (ConfigMap `mlstat
 | Safety: OOM override mem×1.5, bypass cooldown | §9, 070 | Done | Lookback ~10m in code |
 | Safety: high CPU throttle override | §9, 070 | Done | >50% throttled/usage |
 | Safety: restart spike → pause downsizing 2 cycles | §9, 070 | Done | `delta > 3` after baseline → `status.downsizePauseCyclesRemaining`; safety holds decreases (`internal/safety`); counter decremented each reconcile (`restart_pause.go`) |
-| Trend guard: `slopePositive` blocks memory downsize | §6, §9, 070 | Partial | Uses `EMA_short > EMA_long * 1.01`, not spec counter-over-N |
+| Trend guard: `slopePositive` blocks memory downsize | §6, §9, 070 | Done | `status.containers[].stats.memory.slopeStreak` + prior `EMA_short` from last reconcile; `N=5` in `internal/aggregate/slope.go`; tests in `slope_test.go` |
 | `metricsRecommendations` vs `recommendations` | §4, §9, 060–070 | Done | Pre/post safety |
 | Reconcile loop, status update | §10, 080 | Done | `internal/controller/reconcile.go` |
 | Actuation: PATCH workload template | §11, 090 | Done | `internal/actuate`; gated by `AUTOSIZE_ACTUATION=true` |
@@ -61,11 +62,11 @@ Last reviewed: 2026-04-11 — includes learned-state pipeline (ConfigMap `mlstat
 
 ## Future phases (stub LLDs)
 
-| Item | LLD | Status |
-|------|-----|--------|
-| DRA integration | 200 | N/A — stub |
-| Node-aware sketches / bin-packing | 300 | N/A — stub |
-| Time-of-day / hour buckets | 400 | Partial | Quadrant sketches (6h UTC) + HW hourly season in code; LLD 400 still stub-level |
+| Item | LLD | Status | Notes | Issue |
+|------|-----|--------|-------|-------|
+| DRA integration | 200 | N/A — stub | | — |
+| Node-aware sketches / bin-packing | 300 | N/A — stub | | — |
+| Time-of-day / hour buckets | 400 | Partial | Quadrant sketches (6h UTC) + HW hourly season in code; LLD 400 still stub-level | — |
 
 ## Explicit spec exclusions (unchanged)
 
@@ -78,3 +79,4 @@ Last reviewed: 2026-04-11 — includes learned-state pipeline (ConfigMap `mlstat
 
 1. After merging a feature PR, set the row to **Done** or **Partial** and one line in **Notes**.
 2. If behavior intentionally diverges from spec, add a **Notes** bullet and consider opening a spec/LLD alignment issue.
+3. For rows with status **Partial** or **Not started**, add a link to the tracking GitHub issue in the **Issue** column (`[#NN](https://github.com/muandane/saturdai/issues/NN)`), or **—** until an issue exists.

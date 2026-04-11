@@ -101,7 +101,8 @@ status:
           emaLong: 0.0
           sketch: ""
           lastUpdated: ""
-          slopePositive: false   # monotonic increase detection
+          slopeStreak: 0         # consecutive reconciles with mem EMAShort up; persisted (restart-safe)
+          slopePositive: false   # true when slopeStreak >= N (default 5); blocks memory downsize
         lastOOMKill: null
         restartCount: 0
   metricsRecommendations:
@@ -211,6 +212,7 @@ type MetricAggregate struct {
     EMAShort    float64      `json:"emaShort"`
     EMALong     float64      `json:"emaLong"`
     Sketch      string       `json:"sketch"` // base64 DDSketch proto
+    SlopeStreak int32        `json:"slopeStreak,omitempty"` // memory only; consecutive up-cycles
     SlopePos    bool         `json:"slopePositive,omitempty"` // memory only
     LastUpdated *metav1.Time `json:"lastUpdated,omitempty"`
 }
@@ -234,7 +236,7 @@ prediction = baseline + k * burst
 
 ### Slope Detection (memory only)
 
-Track whether memory EMA is monotonically increasing across the last N reconcile cycles. Implemented as a simple counter: if `EMA_short_t > EMA_short_(t-1)` increment, else reset. If counter exceeds threshold → `slopePositive = true` → block downsizing.
+Track whether memory EMA short is monotonically increasing across reconcile cycles. After each reconcile, compare the **new** `EMA_short` (after ingesting the sample) to the **prior** `EMA_short` persisted in status from the previous reconcile. If `EMA_short_t > EMA_short_(t-1)` increment `slopeStreak`, else reset `slopeStreak` to 0. When `slopeStreak >= N`, set `slopePositive = true` → block downsizing (§9). **Default N = 5** (`aggregate.DefaultMemorySlopeCycles` in code). On cold start (no `memory.lastUpdated` yet), do not treat the first observation as an increase—`slopeStreak` stays 0. `slopeStreak` and `slopePositive` are stored in status so controller restarts continue the streak.
 
 ---
 

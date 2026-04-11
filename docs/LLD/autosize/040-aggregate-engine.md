@@ -46,13 +46,13 @@ func UpdateContainerStats(
 
 - `func updateEMA(prev float64, sample float64, alpha float64) float64`
 - `func mergeSketch(encoded string, sample float64) (string, error)` — decode or new sketch, Add, encode
-- `func updateSlopeCounter(prevEMAShort, newEMAShort float64, counter int, threshold int) (newCounter int, slopePositive bool)`
+- `aggregate.UpdateMemorySlope` in `internal/aggregate/slope.go` (unit tests in `slope_test.go`)
 
 **Constants:**
 
 - `alphaShort = 0.2`, `alphaLong = 0.05`
 - `ddsketchRelativeAccuracy = 0.01`
-- `slopeThresholdCycles = N` — **must match spec §7**; spec says “exceeds threshold” without N: **implement default N=5** and make configurable in 010 or controller flags (document in Open questions if spec amended).
+- `DefaultMemorySlopeCycles = 5` in `internal/aggregate/slope.go` (spec §6). Optional future: spec field or flags to override N.
 
 ## Algorithms and invariants
 
@@ -73,7 +73,7 @@ func UpdateContainerStats(
 
 ### Slope (memory)
 
-- Maintain `slopeStreak` in status **or** recompute from last N values — **recommend** storing `memorySlopeStreak int32` in `MetricAggregate` extension field if not in spec YAML (requires 010 amendment) **or** store only `slopePositive` bool and internal streak in annotation — **prefer** minimal: keep counter in `status.containers[].stats.memory` as optional `slopeStreak` field added in 010.
+- Persist `slopeStreak int32` on `status.containers[].stats.memory` next to `slopePositive`; reconciler compares post-update `EMA_short` to pre-update value from status (`internal/controller/reconcile_ingest.go`).
 
 **Logic:** if `newEMAShort > prevEMAShort` then `streak++` else `streak=0`. If `streak >= N` then `slopePositive=true`. Spec: block downsizing when true (070).
 
@@ -114,5 +114,4 @@ Set `cpu.lastUpdated` and `memory.lastUpdated` to `now` when respective sample a
 
 ## Open questions
 
-- Spec §7 does not fix **N** for slope cycles — **propose N=5** default and add to spec in follow-up PR.
-- Whether `slopeStreak` needs a first-class API field — if yes, extend 010 before implementation.
+- Optional: expose **N** on `WorkloadProfile` spec or operator flags (currently fixed default 5 in code).
