@@ -23,12 +23,14 @@ type Result struct {
 }
 
 // Apply applies safety rules to base recommendations.
+// When blockDownsize is true, recommendations are not lowered below the current template (restart spike or pause cycles).
 func Apply(
 	profile *autosizev1.WorkloadProfile,
 	base []autosizev1.Recommendation,
 	current map[string]corev1.ResourceRequirements,
 	sig *podsignals.Snapshot,
 	now time.Time,
+	blockDownsize bool,
 ) Result {
 	out := make([]autosizev1.Recommendation, len(base))
 	copy(out, base)
@@ -68,41 +70,7 @@ func Apply(
 		}
 	}
 
-	for i := range out {
-		name := out[i].ContainerName
-		cur, ok := current[name]
-		if !ok {
-			continue
-		}
-		if cur.Requests != nil {
-			if c := cur.Requests.Cpu(); c != nil {
-				before := out[i].CPURequest
-				after := clampDecreaseCPU(before, *c)
-				out[i].CPURequest = after
-				out[i].Rationale = appendDecreaseStepNote(out[i].Rationale, "cpu_request", before, after, *c)
-			}
-			if m := cur.Requests.Memory(); m != nil && !skipMem[name] {
-				before := out[i].MemoryRequest
-				after := clampDecreaseMemory(before, *m, false)
-				out[i].MemoryRequest = after
-				out[i].Rationale = appendDecreaseStepNote(out[i].Rationale, "memory_request", before, after, *m)
-			}
-		}
-		if cur.Limits != nil {
-			if c := cur.Limits.Cpu(); c != nil {
-				before := out[i].CPULimit
-				after := clampDecreaseCPU(before, *c)
-				out[i].CPULimit = after
-				out[i].Rationale = appendDecreaseStepNote(out[i].Rationale, "cpu_limit", before, after, *c)
-			}
-			if m := cur.Limits.Memory(); m != nil && !skipMem[name] {
-				before := out[i].MemoryLimit
-				after := clampDecreaseMemory(before, *m, true)
-				out[i].MemoryLimit = after
-				out[i].Rationale = appendDecreaseStepNote(out[i].Rationale, "memory_limit", before, after, *m)
-			}
-		}
-	}
+	applyDecreaseClamps(out, current, skipMem, blockDownsize)
 
 	cooldown := time.Duration(defaults.Cooldown(profile.Spec)) * time.Minute
 
@@ -128,6 +96,73 @@ func Apply(
 	}
 }
 
+func applyDecreaseClamps(
+	out []autosizev1.Recommendation,
+	current map[string]corev1.ResourceRequirements,
+	skipMem map[string]bool,
+	blockDownsize bool,
+) {
+	for i := range out {
+		name := out[i].ContainerName
+		cur, ok := current[name]
+		if !ok {
+			continue
+		}
+		if cur.Requests != nil {
+			if c := cur.Requests.Cpu(); c != nil {
+				before := out[i].CPURequest
+				var after resource.Quantity
+				if blockDownsize {
+					after = holdDecreaseCPU(before, *c)
+					out[i].Rationale = appendPauseDownsizeNote(out[i].Rationale, "cpu_request", before, after, *c)
+				} else {
+					after = clampDecreaseCPU(before, *c)
+					out[i].Rationale = appendDecreaseStepNote(out[i].Rationale, "cpu_request", before, after, *c)
+				}
+				out[i].CPURequest = after
+			}
+			if m := cur.Requests.Memory(); m != nil && !skipMem[name] {
+				before := out[i].MemoryRequest
+				var after resource.Quantity
+				if blockDownsize {
+					after = holdDecreaseMemory(before, *m, false)
+					out[i].Rationale = appendPauseDownsizeNote(out[i].Rationale, "memory_request", before, after, *m)
+				} else {
+					after = clampDecreaseMemory(before, *m, false)
+					out[i].Rationale = appendDecreaseStepNote(out[i].Rationale, "memory_request", before, after, *m)
+				}
+				out[i].MemoryRequest = after
+			}
+		}
+		if cur.Limits != nil {
+			if c := cur.Limits.Cpu(); c != nil {
+				before := out[i].CPULimit
+				var after resource.Quantity
+				if blockDownsize {
+					after = holdDecreaseCPU(before, *c)
+					out[i].Rationale = appendPauseDownsizeNote(out[i].Rationale, "cpu_limit", before, after, *c)
+				} else {
+					after = clampDecreaseCPU(before, *c)
+					out[i].Rationale = appendDecreaseStepNote(out[i].Rationale, "cpu_limit", before, after, *c)
+				}
+				out[i].CPULimit = after
+			}
+			if m := cur.Limits.Memory(); m != nil && !skipMem[name] {
+				before := out[i].MemoryLimit
+				var after resource.Quantity
+				if blockDownsize {
+					after = holdDecreaseMemory(before, *m, true)
+					out[i].Rationale = appendPauseDownsizeNote(out[i].Rationale, "memory_limit", before, after, *m)
+				} else {
+					after = clampDecreaseMemory(before, *m, true)
+					out[i].Rationale = appendDecreaseStepNote(out[i].Rationale, "memory_limit", before, after, *m)
+				}
+				out[i].MemoryLimit = after
+			}
+		}
+	}
+}
+
 // appendDecreaseStepNote appends a rationale fragment when the 70% decrease clamp changes a quantity.
 func appendDecreaseStepNote(rationale, axis string, before, after, current resource.Quantity) string {
 	if after.Cmp(before) == 0 {
@@ -137,6 +172,36 @@ func appendDecreaseStepNote(rationale, axis string, before, after, current resou
 		"; safety: decrease_step %s %s->%s (floor 70%% of current %s)",
 		axis, before.String(), after.String(), current.String(),
 	)
+}
+
+func appendPauseDownsizeNote(rationale, axis string, before, after, current resource.Quantity) string {
+	if after.Cmp(before) == 0 {
+		return rationale
+	}
+	return rationale + fmt.Sprintf(
+		"; safety: pause_downsize %s %s->%s (hold at current %s)",
+		axis, before.String(), after.String(), current.String(),
+	)
+}
+
+func holdDecreaseCPU(newQ, curQ resource.Quantity) resource.Quantity {
+	if newQ.Cmp(curQ) >= 0 {
+		return newQ
+	}
+	if curQ.IsZero() {
+		return newQ
+	}
+	return curQ
+}
+
+func holdDecreaseMemory(newQ, curQ resource.Quantity, isLimit bool) resource.Quantity {
+	if newQ.Cmp(curQ) >= 0 {
+		return memoryQtyAligned(newQ.Value(), isLimit)
+	}
+	if curQ.IsZero() {
+		return memoryQtyAligned(newQ.Value(), isLimit)
+	}
+	return memoryQtyAligned(curQ.Value(), isLimit)
 }
 
 // clampDecreaseCPU applies a 70% floor of current when the new recommendation is lower (millicores).

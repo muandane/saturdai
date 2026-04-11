@@ -40,6 +40,9 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 	logger := log.FromContext(ctx)
 	ns := profile.Namespace
 	mode := defaults.EffectiveMode(profile.Spec)
+	lastEvaluatedBefore := profile.Status.LastEvaluated
+	baselineSeen := lastEvaluatedBefore != nil
+	pauseRemaining := profile.Status.DownsizePauseCyclesRemaining
 
 	obj, err := r.Target.Resolve(ctx, ns, profile.Spec.TargetRef.Kind, profile.Spec.TargetRef.Name)
 	if err != nil {
@@ -92,6 +95,7 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 	}
 
 	byName := indexContainerStatus(profile.Status.Containers)
+	var anySpike bool
 	for _, cname := range tplNames {
 		st := byName[cname]
 		cpuSketch, memSketch := loadSketches(&st)
@@ -132,6 +136,13 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 
 		applyLastOOMKillFromSnapshot(&st, sig.LastOOMKill[cname])
 
+		prevRestart := st.Stats.RestartCount
+		currentMax := sig.RestartCount[cname]
+		st.Stats.RestartCount = currentMax
+		if isRestartSpike(prevRestart, currentMax, baselineSeen) {
+			anySpike = true
+		}
+
 		byName[cname] = st
 	}
 
@@ -171,8 +182,10 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 		return err
 	}
 
-	safe := safety.Apply(profile, recs, curRes, sig, time.Now())
+	blockDownsize := pauseRemaining > 0 || anySpike
+	safe := safety.Apply(profile, recs, curRes, sig, time.Now(), blockDownsize)
 	profile.Status.Recommendations = safe.Recommendations
+	profile.Status.DownsizePauseCyclesRemaining = restartPauseAfterReconcile(baselineSeen, anySpike, pauseRemaining)
 	t := metav1.Now()
 	profile.Status.LastEvaluated = &t
 	setCondition(profile, autosizev1.ConditionTypeMetricsAvailable, metav1.ConditionTrue, "Collected", "metrics processed")

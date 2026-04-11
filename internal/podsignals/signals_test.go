@@ -117,3 +117,45 @@ func TestMergePodStatus_nilPodNoOp(t *testing.T) {
 		t.Fatal("nil pod should not mutate snapshot")
 	}
 }
+
+func TestMergePodStatus_maxRestartCountAcrossPods(t *testing.T) {
+	s := NewSnapshot()
+	s.MergePodStatus(&corev1.Pod{
+		Status: corev1.PodStatus{
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 2},
+			},
+		},
+	})
+	s.MergePodStatus(&corev1.Pod{
+		Status: corev1.PodStatus{
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 7},
+			},
+		},
+	})
+	if s.RestartCount["app"] != 7 {
+		t.Fatalf("RestartCount[app] got %d want 7 (max across pods)", s.RestartCount["app"])
+	}
+}
+
+func TestMergePodStatus_maxRestartCountOrderIndependent(t *testing.T) {
+	s := NewSnapshot()
+	s.MergePodStatus(&corev1.Pod{
+		Status: corev1.PodStatus{
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 9},
+			},
+		},
+	})
+	s.MergePodStatus(&corev1.Pod{
+		Status: corev1.PodStatus{
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 3},
+			},
+		},
+	})
+	if s.RestartCount["app"] != 9 {
+		t.Fatalf("RestartCount[app] got %d want 9", s.RestartCount["app"])
+	}
+}

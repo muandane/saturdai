@@ -270,6 +270,11 @@ spec:
                   type: object
                 maxItems: 20
                 type: array
+              downsizePauseCyclesRemaining:
+                description: DownsizePauseCyclesRemaining counts reconcile cycles
+                  where downsizing is blocked after a restart spike (delta > 3).
+                format: int32
+                type: integer
               lastApplied:
                 format: date-time
                 type: string

@@ -153,6 +153,10 @@ type WorkloadProfileStatus struct {
 	// +optional
 	LastEvaluated *metav1.Time `json:"lastEvaluated,omitempty"`
 
+	// DownsizePauseCyclesRemaining counts reconcile cycles where downsizing is blocked after a restart spike (delta > 3).
+	// +optional
+	DownsizePauseCyclesRemaining int32 `json:"downsizePauseCyclesRemaining,omitempty"`
+
 	// conditions represent the current state of the WorkloadProfile resource.
 	// +listType=map
 	// +listMapKey=type

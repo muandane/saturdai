@@ -96,7 +96,7 @@ func TestApply_UsesSeparateCPUAndMemoryClamps(t *testing.T) {
 			MemoryLimit:   resource.MustParse("10Mi"),
 		},
 	}
-	res := Apply(profile, base, cur, podsignals.NewSnapshot(), time.Unix(0, 0))
+	res := Apply(profile, base, cur, podsignals.NewSnapshot(), time.Unix(0, 0), false)
 	if len(res.Recommendations) != 1 {
 		t.Fatalf("len %d", len(res.Recommendations))
 	}
@@ -140,9 +140,83 @@ func TestApply_NoDecreaseStepNoteWhenNoClamp(t *testing.T) {
 			Rationale:     "balanced: test",
 		},
 	}
-	res := Apply(profile, base, cur, podsignals.NewSnapshot(), time.Unix(0, 0))
+	res := Apply(profile, base, cur, podsignals.NewSnapshot(), time.Unix(0, 0), false)
 	r := res.Recommendations[0]
 	if strings.Contains(r.Rationale, "safety: decrease_step") {
 		t.Fatalf("rationale should not contain decrease_step when recommendation is above current: %q", r.Rationale)
+	}
+}
+
+func TestApply_PauseDownsize_blocksDecreaseBelowCurrent(t *testing.T) {
+	profile := &autosizev1.WorkloadProfile{}
+	cur := map[string]corev1.ResourceRequirements{
+		"app": {
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1000m"),
+				corev1.ResourceMemory: resource.MustParse("100Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2000m"),
+				corev1.ResourceMemory: resource.MustParse("200Mi"),
+			},
+		},
+	}
+	base := []autosizev1.Recommendation{
+		{
+			ContainerName: "app",
+			CPURequest:    resource.MustParse("100m"),
+			MemoryRequest: resource.MustParse("10Mi"),
+			CPULimit:      resource.MustParse("100m"),
+			MemoryLimit:   resource.MustParse("10Mi"),
+		},
+	}
+	res := Apply(profile, base, cur, podsignals.NewSnapshot(), time.Unix(0, 0), true)
+	r := res.Recommendations[0]
+	wantCPUReq := resource.MustParse("1000m")
+	wantCPULim := resource.MustParse("2000m")
+	if r.CPURequest.Cmp(wantCPUReq) != 0 || r.CPULimit.Cmp(wantCPULim) != 0 {
+		t.Fatalf("cpu got request %s limit %s want 1000m / 2000m", r.CPURequest.String(), r.CPULimit.String())
+	}
+	wantMemReq := resource.MustParse("100Mi")
+	wantMemLim := resource.MustParse("200Mi")
+	if r.MemoryRequest.Cmp(wantMemReq) != 0 || r.MemoryLimit.Cmp(wantMemLim) != 0 {
+		t.Fatalf("memory got request %s limit %s", r.MemoryRequest.String(), r.MemoryLimit.String())
+	}
+	if !strings.Contains(r.Rationale, "pause_downsize") {
+		t.Fatalf("rationale should note pause_downsize: %q", r.Rationale)
+	}
+}
+
+func TestApply_PauseDownsize_allowsIncreaseAboveCurrent(t *testing.T) {
+	profile := &autosizev1.WorkloadProfile{}
+	cur := map[string]corev1.ResourceRequirements{
+		"app": {
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("100m"),
+				corev1.ResourceMemory: resource.MustParse("32Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("200m"),
+				corev1.ResourceMemory: resource.MustParse("64Mi"),
+			},
+		},
+	}
+	base := []autosizev1.Recommendation{
+		{
+			ContainerName: "app",
+			CPURequest:    resource.MustParse("500m"),
+			MemoryRequest: resource.MustParse("128Mi"),
+			CPULimit:      resource.MustParse("1000m"),
+			MemoryLimit:   resource.MustParse("256Mi"),
+			Rationale:     "balanced: test",
+		},
+	}
+	res := Apply(profile, base, cur, podsignals.NewSnapshot(), time.Unix(0, 0), true)
+	r := res.Recommendations[0]
+	if r.CPURequest.Cmp(resource.MustParse("500m")) != 0 {
+		t.Fatalf("CPU request got %s want 500m", r.CPURequest.String())
+	}
+	if strings.Contains(r.Rationale, "pause_downsize") {
+		t.Fatalf("rationale should not contain pause_downsize when increasing: %q", r.Rationale)
 	}
 }

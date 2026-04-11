@@ -28,7 +28,9 @@ func (s *Snapshot) MergePodStatus(pod *corev1.Pod) {
 		return
 	}
 	for _, cs := range pod.Status.ContainerStatuses {
-		s.RestartCount[cs.Name] = cs.RestartCount
+		if cs.RestartCount > s.RestartCount[cs.Name] {
+			s.RestartCount[cs.Name] = cs.RestartCount
+		}
 		if cs.LastTerminationState.Terminated == nil || cs.LastTerminationState.Terminated.Reason != "OOMKilled" {
 			continue
 		}
