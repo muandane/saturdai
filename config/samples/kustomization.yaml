@@ -2,4 +2,5 @@
 resources:
 - autosize_v1_workloadprofile.yaml
 - autosize_global_defaults_configmap.yaml
+- sample-deployment.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples
