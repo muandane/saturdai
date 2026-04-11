@@ -1,0 +1,11 @@
+# Global resource defaults for the admission webhook (LLD-120). Required keys per docs/lld/autosize/120-global-defaults-configmap.md
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: autosize-global-defaults
+  namespace: saturdai-system
+data:
+  cpuRequest: "100m"
+  cpuLimit: "500m"
+  memoryRequest: "128Mi"
+  memoryLimit: "512Mi"

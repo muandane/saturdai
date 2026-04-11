@@ -276,9 +276,10 @@ spec:
               lastEvaluated:
                 format: date-time
                 type: string
-              recommendations:
-                description: Recommendations are computed requests/limits with human-readable
-                  rationale.
+              metricsRecommendations:
+                description: |-
+                  MetricsRecommendations are requests/limits from the recommendation engine before safety.Apply
+                  (cooldown, OOM/throttle overrides, 70% decrease floor, trend guard). Omitted when empty.
                 items:
                   description: Recommendation is a deterministic suggested patch for
                     one container.
@@ -319,6 +320,53 @@ spec:
                   - memoryRequest
                   - rationale
                   type: object
+                maxItems: 20
+                type: array
+              recommendations:
+                description: |-
+                  Recommendations are effective requests/limits after safety.Apply, with human-readable rationale.
+                  These match what actuation and the pod webhook apply when enabled.
+                items:
+                  description: Recommendation is a deterministic suggested patch for
+                    one container.
+                  properties:
+                    containerName:
+                      type: string
+                    cpuLimit:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    cpuRequest:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    memoryLimit:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    memoryRequest:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    rationale:
+                      type: string
+                  required:
+                  - containerName
+                  - cpuLimit
+                  - cpuRequest
+                  - memoryLimit
+                  - memoryRequest
+                  - rationale
+                  type: object
+                maxItems: 20
                 type: array
             type: object
         required:

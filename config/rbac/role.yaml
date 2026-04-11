@@ -7,6 +7,13 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps
+  verbs:
+  - get
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - nodes
   - pods
   verbs:
@@ -30,6 +37,12 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - apps
+  resources:
+  - replicasets
+  verbs:
+  - get
 - apiGroups:
   - autosize.saturdai.auto
   resources:

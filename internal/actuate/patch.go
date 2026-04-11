@@ -8,6 +8,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	autosizev1 "github.com/muandane/saturdai/api/v1"
@@ -21,17 +22,31 @@ func Apply(ctx context.Context, c client.Client, obj runtime.Object, recs []auto
 	}
 	switch t := obj.(type) {
 	case *appsv1.Deployment:
-		cp := t.DeepCopy()
-		if err := patchPodSpec(&cp.Spec.Template.Spec, byName, skipMemory); err != nil {
-			return err
-		}
-		return c.Update(ctx, cp)
+		key := client.ObjectKeyFromObject(t)
+		return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			fresh := &appsv1.Deployment{}
+			if err := c.Get(ctx, key, fresh); err != nil {
+				return err
+			}
+			cp := fresh.DeepCopy()
+			if err := patchPodSpec(&cp.Spec.Template.Spec, byName, skipMemory); err != nil {
+				return err
+			}
+			return c.Update(ctx, cp)
+		})
 	case *appsv1.StatefulSet:
-		cp := t.DeepCopy()
-		if err := patchPodSpec(&cp.Spec.Template.Spec, byName, skipMemory); err != nil {
-			return err
-		}
-		return c.Update(ctx, cp)
+		key := client.ObjectKeyFromObject(t)
+		return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			fresh := &appsv1.StatefulSet{}
+			if err := c.Get(ctx, key, fresh); err != nil {
+				return err
+			}
+			cp := fresh.DeepCopy()
+			if err := patchPodSpec(&cp.Spec.Template.Spec, byName, skipMemory); err != nil {
+				return err
+			}
+			return c.Update(ctx, cp)
+		})
 	default:
 		return fmt.Errorf("unsupported target type %T", obj)
 	}

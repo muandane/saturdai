@@ -256,6 +256,13 @@ func (in *WorkloadProfileStatus) DeepCopyInto(out *WorkloadProfileStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.MetricsRecommendations != nil {
+		in, out := &in.MetricsRecommendations, &out.MetricsRecommendations
+		*out = make([]Recommendation, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
 	if in.Recommendations != nil {
 		in, out := &in.Recommendations, &out.Recommendations
 		*out = make([]Recommendation, len(*in))

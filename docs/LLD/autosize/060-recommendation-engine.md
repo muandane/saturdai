@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Compute `status.recommendations[]` (CPU/memory request and limit quantities) from `WorkloadProfile` spec `mode`, per-container min/max clamps, DDSketch quantiles, EMA-based prediction (spec §7), and `burst`-mode peak rules — **before** safety mutations (070). Deterministic and fully explainable per spec §8 and §16.
+Compute the **metrics-phase** recommendation list (CPU/memory request and limit quantities) from `WorkloadProfile` spec `mode`, per-container min/max clamps, DDSketch quantiles, EMA-based prediction (spec §7), and `burst`-mode peak rules — **before** safety mutations (070). The controller persists that output on `status.metricsRecommendations` (pre-safety). **`status.recommendations`** holds the **post-safety** effective values (same list passed to actuation and the pod webhook); see [070-safety-layer.md](./070-safety-layer.md). Deterministic and fully explainable per spec §8 and §16.
 
 ## Spec traceability
 

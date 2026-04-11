@@ -51,7 +51,9 @@ func ApplySafety(
 
 ### Max decrease 30%
 
-For each quantity (request/limit): if `new < current`, require `new >= current * 0.7` (floating compare in millis then round). If violated, **clamp** `new` to `current * 0.7` and append rationale `clamped_decrease_30pct`.
+For each quantity (request/limit): if `new < current`, require `new >= current * 0.7` (floating compare in millis then round). If violated, **clamp** `new` to `ceil(current * 0.7)` and append a rationale fragment such as `; safety: decrease_step <axis> <before>-><after> (floor 70% of current <current>)` so operators can see why effective resources differ from sketch-only percentiles.
+
+**Status fields:** `status.metricsRecommendations` reflects the engine output before this clamp; `status.recommendations` reflects the clamped/effective list used for PATCH and webhook injection.
 
 **Increases:** no upper clamp beyond spec max*.
 

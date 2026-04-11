@@ -45,10 +45,12 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 	if err != nil {
 		if target.IsNotFound(err) {
 			setCondition(profile, autosizev1.ConditionTypeTargetResolved, metav1.ConditionFalse, "NotFound", "target workload not found")
-			return r.Client.Status().Update(ctx, profile)
+			return r.persistStatus(ctx, profile)
 		}
 		setCondition(profile, autosizev1.ConditionTypeTargetResolved, metav1.ConditionFalse, "Error", err.Error())
-		_ = r.Client.Status().Update(ctx, profile)
+		if uerr := r.persistStatus(ctx, profile); uerr != nil {
+			return uerr
+		}
 		return err
 	}
 	setCondition(profile, autosizev1.ConditionTypeTargetResolved, metav1.ConditionTrue, "Resolved", "target found")
@@ -160,6 +162,8 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 		recs = append(recs, rec)
 	}
 
+	profile.Status.MetricsRecommendations = append([]autosizev1.Recommendation(nil), recs...)
+
 	curRes, err := currentResourcesFromTemplate(obj, tplNames)
 	if err != nil {
 		return err
@@ -171,7 +175,7 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 	profile.Status.LastEvaluated = &t
 	setCondition(profile, autosizev1.ConditionTypeMetricsAvailable, metav1.ConditionTrue, "Collected", "metrics processed")
 
-	if err := r.Client.Status().Update(ctx, profile); err != nil {
+	if err := r.persistStatus(ctx, profile); err != nil {
 		return err
 	}
 
@@ -183,7 +187,7 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 		return err
 	}
 	profile.Status.LastApplied = &metav1.Time{Time: time.Now()}
-	return r.Client.Status().Update(ctx, profile)
+	return r.persistStatus(ctx, profile)
 }
 
 type minMax struct {

@@ -104,13 +104,20 @@ status:
           slopePositive: false   # monotonic increase detection
         lastOOMKill: null
         restartCount: 0
+  metricsRecommendations:
+    - containerName: app
+      cpuRequest: "180m"
+      cpuLimit: "750m"
+      memoryRequest: "240Mi"
+      memoryLimit: "480Mi"
+      rationale: "balanced: P70/P95 cpu & mem, mode=balanced"
   recommendations:
     - containerName: app
       cpuRequest: "200m"
       cpuLimit: "800m"
       memoryRequest: "256Mi"
       memoryLimit: "512Mi"
-      rationale: "balanced: P70/P95, no OOM events"
+      rationale: "balanced: P70/P95, no OOM events; safety: decrease_step …"
   lastApplied: ""
   lastEvaluated: ""
 ```
@@ -303,11 +310,12 @@ k           = 2.0
 
 ### Rationale Field
 
-Every recommendation in `status.recommendations[].rationale` must be a human-readable string explaining the decision:
+Every recommendation in `status.recommendations[].rationale` must be a human-readable string explaining the decision. **`status.recommendations`** holds values **after** safety rules (including the 30% decrease floor). Sketch-only outputs are mirrored on **`status.metricsRecommendations`** (pre-safety) when present so operators can compare engine output to effective values.
 
 ```
 "balanced: P70=230m cpu, P95=890m cpu, no OOM in 24h, cooldown satisfied"
 "override: OOMKill detected 3m ago, memory x1.5 applied"
+"; safety: decrease_step cpu_request 98m->70m (floor 70% of current 100m)"
 ```
 
 ---
