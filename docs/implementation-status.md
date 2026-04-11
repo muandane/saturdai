@@ -3,7 +3,7 @@
 **Authoritative requirements:** [spec/autosize-controller-spec.md](./spec/autosize-controller-spec.md)  
 **LLD index:** [LLD/autosize/README.md](./LLD/autosize/README.md)
 
-Last reviewed: 2026-04-11 (update when scope changes).
+Last reviewed: 2026-04-11 — LLD 010/050/070 and README aligned with restart spike implementation (update when scope changes).
 
 ## Legend
 
@@ -24,14 +24,14 @@ Last reviewed: 2026-04-11 (update when scope changes).
 | EMA short/long (α 0.2 / 0.05) | §6, 040 | Done | `internal/aggregate/ema.go` |
 | DDSketch in status (base64) | §6, 040 | Done | `internal/aggregate` |
 | Pod signals: OOM from pod status | §5, 050 | Done | Merged pod `lastState` OOM `finishedAt` (max per container) in `status.containers[].stats.lastOOMKill`; safety uses same snapshot |
-| Pod signals: restart count & delta | §5, §9, 050 | Not started | `RestartCount` collected in snapshot but not persisted; no delta vs prior reconcile |
+| Pod signals: restart count & delta | §5, §9, 050 | Done | Max restart per container in `status.containers[].stats.restartCount`; delta vs prior after `lastEvaluated` baseline (`internal/controller/reconcile.go`, `internal/podsignals`) |
 | Four modes + percentile tables | §8, 060 | Done | `internal/recommend/recommend.go` |
 | Prediction `EMA_long + k * (EMA_short - EMA_long)` | §6–7, 060 | Not started | Percentiles only; `k` unused |
 | Safety: max 30% decrease | §9, 070 | Done | Implemented as ≥70% of current (`internal/safety`) |
 | Safety: cooldown vs `lastApplied` | §9, 070 | Done | |
 | Safety: OOM override mem×1.5, bypass cooldown | §9, 070 | Done | Lookback ~10m in code |
 | Safety: high CPU throttle override | §9, 070 | Done | >50% throttled/usage |
-| Safety: restart spike → pause downsizing 2 cycles | §9, 070 | Not started | |
+| Safety: restart spike → pause downsizing 2 cycles | §9, 070 | Done | `delta > 3` after baseline → `status.downsizePauseCyclesRemaining`; safety holds decreases (`internal/safety`); counter decremented each reconcile (`restart_pause.go`) |
 | Trend guard: `slopePositive` blocks memory downsize | §6, §9, 070 | Partial | Uses `EMA_short > EMA_long * 1.01`, not spec counter-over-N |
 | `metricsRecommendations` vs `recommendations` | §4, §9, 060–070 | Done | Pre/post safety |
 | Reconcile loop, status update | §10, 080 | Done | `internal/controller/reconcile.go` |

@@ -14,7 +14,7 @@ Define how the controller reads `Pod` API state for containers belonging to the 
 
 ## Scope and non-goals
 
-**In scope:** List/watch pods by workload selector; per-container last OOM timestamp; restart count snapshot storage in status or ephemeral reconcile state.
+**In scope:** List/watch pods by workload selector; per-container last OOM timestamp; restart count snapshot persisted in `status.containers[].stats.restartCount`.
 
 **Out of scope:** Applying overrides (070), kubelet metrics (030).
 
@@ -28,7 +28,7 @@ Define how the controller reads `Pod` API state for containers belonging to the 
 - **Inputs:** Pods matching target selector, previous `restartCount` from `status.containers[].restartCount` (spec §4) or dedicated map.
 - **Outputs:**
   - `lastOOMKill *metav1.Time` per container — update when termination reason `OOMKilled` observed with recent timestamp.
-  - `restartCount int32` — **snapshot** of max or sum policy: **recommend max** across pods for container name (multiple replicas).
+  - `restartCount int32` — **snapshot**: **max** across pods for each container name (multiple replicas), implemented in [`internal/podsignals`](../../../internal/podsignals) (`MergePodStatus`).
 
 **Restart delta:** `delta = currentMaxRestart - status.restartCount`; persist `currentMaxRestart` into status each cycle.
 
@@ -42,6 +42,16 @@ type PodSignalSnapshot struct {
 
 func CollectPodSignals(pods []corev1.Pod, prevRestart map[string]int32) (PodSignalSnapshot, map[string]int32 /* delta by container */)
 ```
+
+## Implementation (current)
+
+| Concern | Behavior |
+|---------|----------|
+| Max restarts | `Snapshot.MergePodStatus` keeps the maximum `restartCount` per container name across all pods. |
+| Persist | Reconcile writes `currentMax` into `status.containers[].stats.restartCount` each cycle ([`internal/controller/reconcile.go`](../../../internal/controller/reconcile.go)). |
+| Delta | `delta = currentMax - previous` where `previous` is the value from status before this cycle. |
+| Spike detection | Only after a baseline exists (`status.lastEvaluated` was already set on a prior successful reconcile); avoids false spikes on first persist when `previous` is 0. |
+| Downstream | Deltas feed restart-spike handling in 070 / [`restart_pause.go`](../../../internal/controller/restart_pause.go). |
 
 ## Algorithms and invariants
 
@@ -78,4 +88,4 @@ func CollectPodSignals(pods []corev1.Pod, prevRestart map[string]int32) (PodSign
 
 ## Open questions
 
-- Whether restart spike compares **per-pod** delta or **aggregated** — spec implies delta on a single counter; **recommend per-container max across pods** for simplicity.
+- (Resolved) Restart spike uses **per-container max** restart count across pods, then delta vs prior status for that container.

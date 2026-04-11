@@ -36,9 +36,9 @@ Wire the **read-only** reconciliation path: load profile, resolve target (020), 
 3. List pods for selector
 4. `collectKubeletMetrics` — partial OK
 5. For each template container: `UpdateContainerStats` with samples
-6. `CollectPodSignals` → merge into status fields
+6. Pod signal snapshot (`MergePodStatus` per pod) → OOM times + max `restartCount` per container; reconcile persists restarts and computes spike deltas vs prior status (050); updates `downsizePauseCyclesRemaining` (070)
 7. Decode sketches, `ComputeRecommendation` per container
-8. `ApplySafety` with `ShouldPatch` ignored for patch but use for metrics/logging
+8. `Apply` (safety) with `blockDownsize` from pause counter / spike; `ShouldPatch` ignored for patch but use for metrics/logging
 9. `Status().Update` recommendations, `lastEvaluated`, aggregates
 
 ## Algorithms and invariants

@@ -15,7 +15,7 @@ Apply spec §9 mechanisms to raw recommendations from 060: max **30% decrease** 
 
 ## Scope and non-goals
 
-**In scope:** Pure functions `ApplySafety(profile, recs, podSignals, metrics, now) → SafeResult`.
+**In scope:** Pure function `Apply` in [`internal/safety`](../../../internal/safety) (same responsibilities as `ApplySafety` below).
 
 **Out of scope:** Kubelet fetch (030), sketch updates (040), Kubernetes PATCH (090).
 
@@ -27,25 +27,26 @@ Apply spec §9 mechanisms to raw recommendations from 060: max **30% decrease** 
 ## Data model / API surface
 
 ```go
-type SafeResult struct {
-    Recommendations []Recommendation // mutated copies
+type Result struct {
+    Recommendations []Recommendation
     ShouldPatch     bool
-    BypassCooldown  bool // true when override applied
-    PauseDownsizeCyclesRemaining int // restart spike
-    SkipMemoryForContainer map[string]bool // slope guard
+    SkipMemory      map[string]bool // slope guard
 }
 
-func ApplySafety(
+func Apply(
     profile *autosizev1.WorkloadProfile,
     base []Recommendation,
-    currentResources map[string]corev1.ResourceRequirements, // from template
-    podSignals PodSignalSnapshot,
-    throttlingRatio map[string]float64, // container -> throttled/cpu usage
+    current map[string]corev1.ResourceRequirements,
+    sig *podsignals.Snapshot,
     now time.Time,
-) SafeResult
+    blockDownsize bool,
+) Result
 ```
 
-**State in status (optional):** `pauseDownsizeCycles` counter in annotation or status field — **recommend** small status extension `downsizePauseUntilCycle int32` or use controller-only memory with **annotation** on profile for simplicity in MVP.
+- **Throttle ratios** live on `sig.ThrottleRatios` (kubelet-derived in reconcile).
+- **`blockDownsize`:** `true` when `status.downsizePauseCyclesRemaining > 0` or when any container’s restart delta indicates a spike this reconcile (computed in reconcile; see 050). When `true`, decrease clamps become **hold at current template** instead of the 70% floor; rationale includes `safety: pause_downsize`.
+
+**State in status:** `downsizePauseCyclesRemaining int32` on `WorkloadProfile` — reconciler sets it to `2` after a spike (delta > 3 with baseline) and decrements each reconcile; persisted for crash safety ([`restart_pause.go`](../../../internal/controller/restart_pause.go)).
 
 ## Algorithms and invariants
 
@@ -71,7 +72,7 @@ For each quantity (request/limit): if `new < current`, require `new >= current *
 | High CPU throttle | `throttledUsage / usage > 0.5` when usage > epsilon | `cpuLimit *= 1.25` |
 | Restart spike | delta > 3 | set pause downsizing **2 reconcile cycles** |
 
-**Ordering:** Compute base recs → apply overrides → apply 30% clamp to **non-override** changes? **Rule:** Overrides apply **after** base recs; clamp may still apply to prevent absurd values — document: OOM ×1.5 is **not** subject to 30% decrease cap (it's increase).
+**Ordering:** Trend guard → OOM override → throttle override → decrease clamps (70% floor or pause hold). Overrides apply **before** the clamp pass so memory/CPU **increases** from OOM/throttle still apply; only downward moves are limited by clamp or pause.
 
 ### Trend guard
 
@@ -110,4 +111,4 @@ For each quantity (request/limit): if `new < current`, require `new >= current *
 
 ## Open questions
 
-- Persist **pause downsize cycles** in status vs ephemeral — **recommend status field** `downsizePauseCyclesRemaining int32` added via 010 for crash safety.
+- (Resolved) Pause cycles are persisted as **`status.downsizePauseCyclesRemaining`** (see 010).
