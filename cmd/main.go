@@ -35,11 +35,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	crwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
+	admissionwh "sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	autosizev1 "github.com/muandane/saturdai/api/v1"
 	"github.com/muandane/saturdai/internal/controller"
+	"github.com/muandane/saturdai/internal/defaults"
 	"github.com/muandane/saturdai/internal/kubelet"
+	podwebhook "github.com/muandane/saturdai/internal/webhook"
 	"github.com/muandane/saturdai/internal/target"
 	// +kubebuilder:scaffold:imports
 )
@@ -66,6 +69,8 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
+	var defaultsCMNamespace, defaultsCMName string
+	var defaultsReload time.Duration
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -83,6 +88,12 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.StringVar(&defaultsCMNamespace, "defaults-configmap-namespace", "",
+		"Namespace of the global resource defaults ConfigMap (empty disables loading)")
+	flag.StringVar(&defaultsCMName, "defaults-configmap-name", "",
+		"Name of the global defaults ConfigMap (empty disables loading)")
+	flag.DurationVar(&defaultsReload, "defaults-reload-interval", time.Minute,
+		"How often to reload the global defaults ConfigMap")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -108,7 +119,7 @@ func main() {
 
 	// Initial webhook TLS options
 	webhookTLSOpts := tlsOpts
-	webhookServerOptions := webhook.Options{
+	webhookServerOptions := crwebhook.Options{
 		TLSOpts: webhookTLSOpts,
 	}
 
@@ -121,7 +132,7 @@ func main() {
 		webhookServerOptions.KeyName = webhookCertKey
 	}
 
-	webhookServer := webhook.NewServer(webhookServerOptions)
+	webhookServer := crwebhook.NewServer(webhookServerOptions)
 
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
 	// More info:
@@ -198,6 +209,20 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "WorkloadProfile")
 		os.Exit(1)
 	}
+
+	defaultsLoader := defaults.NewGlobalDefaultsLoader(mgr.GetClient(), defaultsCMNamespace, defaultsCMName, defaultsReload)
+	if err := mgr.Add(defaultsLoader); err != nil {
+		setupLog.Error(err, "Failed to add global defaults loader")
+		os.Exit(1)
+	}
+
+	dec := admissionwh.NewDecoder(scheme)
+	podMutator := &podwebhook.PodMutator{
+		Client:   mgr.GetClient(),
+		Decoder:  dec,
+		Defaults: defaultsLoader,
+	}
+	mgr.GetWebhookServer().Register("/mutate-v1-pod", &admissionwh.Webhook{Handler: podMutator})
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
