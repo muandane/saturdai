@@ -50,6 +50,12 @@ func (resilienceStrategy) Compute(in Input) (autosizev1.Recommendation, error) {
 	p99m, _ := qBytes(memSk, 0.99)
 	memReqBytes := p90m
 	memLimBytes := p99m * 1.2
+	if in.ForecastCPU > 0 {
+		cpuLimMilli = math.Max(cpuLimMilli, in.ForecastCPU)
+	}
+	if in.ForecastMem > 0 {
+		memLimBytes = math.Max(memLimBytes, in.ForecastMem)
+	}
 	rationale := fmt.Sprintf("resilience: P90 req, P99*1.1/1.2 limits, mode=%s", "resilience")
 	return finalizeRec(in, cpuReqMilli, cpuLimMilli, memReqBytes, memLimBytes, rationale), nil
 }

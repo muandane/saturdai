@@ -21,7 +21,8 @@ type ContainerFeedback struct {
 	SampleCount     int32   `json:"sampleCount"`
 }
 
-// RecordUsage compares observed usage to the last post-safety recommendations (CPU millicores, memory bytes).
+// RecordUsage compares observed kubelet usage to the previous reconcile's post-safety
+// WorkloadProfile.Status.Recommendations (same basis as actuation), in millicores and bytes.
 func (f *ContainerFeedback) RecordUsage(cpuActual, cpuRecommendedMilli, memActual, memRecommendedBytes float64) {
 	var ratios []float64
 	if cpuRecommendedMilli > 0 {
