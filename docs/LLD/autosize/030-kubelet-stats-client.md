@@ -9,12 +9,12 @@ Define how the controller fetches container-level CPU/memory (and throttling whe
 | Spec § | Requirement (summary) |
 |--------|------------------------|
 | §5 | Source `/stats/summary`; signals: CPU millicores, memory working set, throttling; interval default 30s; no Metrics Server for history |
-| §13 | RBAC: `nodes/stats` get |
+| §13 | RBAC: `nodes` + `nodes/proxy` (see [spec §13](../../spec/autosize-controller-spec.md#13-rbac-requirements)) |
 | §12 | No kubelet access → requeue, surface CRD condition |
 
 ## Scope and non-goals
 
-**In scope:** Node address resolution, TLS to kubelet, request timeout, parsing summary JSON, extracting per-container stats for pods on that node.
+**In scope:** Fetching summary via API server **node proxy** (`GET /api/v1/nodes/{name}/proxy/stats/summary`) with bounded timeout, parsing summary JSON, extracting per-container stats for pods on that node. Direct TLS to kubelet is an alternative but not what the current implementation uses.
 
 **Out of scope:** Persisting aggregates (040), reconcile orchestration (080), Pod OOM from API (050).
 

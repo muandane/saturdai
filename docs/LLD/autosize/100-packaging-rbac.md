@@ -30,22 +30,23 @@ Deliver deployable operator artifacts: Deployment/Helm/Kustomize, ServiceAccount
 | API group | Resources | Verbs |
 |-----------|-----------|-------|
 | `""` | `pods` | get, list, watch |
-| `""` | `nodes/stats` | get |
+| `""` | `nodes` | get, list, watch |
+| `""` | `nodes/proxy` | get |
 | `apps` | `deployments`, `statefulsets` | get, list, watch, patch |
-| `autosize.io` | `workloadprofiles`, `workloadprofiles/status` | get, list, watch, create, update, patch |
+| `autosize.saturdai.auto` | `workloadprofiles`, `workloadprofiles/status` | get, list, watch, create, update, patch |
 
 **Additional (typical):**
 
 - `coordination.k8s.io` `leases` for leader election: get, create, update, patch
 - `""` `events` record if used: create, patch
-- `""` `nodes` get (for addresses) if not covered — **nodes get** often needed for 030; spec lists `nodes/stats` only — **add** `nodes` **get** for address resolution (document deviation; seek spec amendment).
+- Kubelet `/stats/summary` is accessed through **nodes/proxy** (see spec §13 and [`config/rbac/role.yaml`](../../../config/rbac/role.yaml)).
 
 **Controller flags:**
 
 - `--metrics-bind-address`
 - `--health-probe-bind-address`
 - `--leader-elect`
-- `--actuation-enabled` (mirror env)
+- Actuation is gated by env **`AUTOSIZE_ACTUATION`** (`true` / `1` enables workload PATCH); there is no separate `--actuation-enabled` flag in the current binary.
 
 ## Algorithms and invariants
 
@@ -59,7 +60,7 @@ Deliver deployable operator artifacts: Deployment/Helm/Kustomize, ServiceAccount
 ## Security / RBAC
 
 - Principle of least privilege review before GA.
-- `nodes/stats` is powerful — namespace-scoped SA cannot reduce node scope; document cluster-wide requirement.
+- Node-scoped access (`nodes`, `nodes/proxy`) is cluster-scoped — document cluster-wide requirement for the controller ServiceAccount.
 
 ## Observability
 
@@ -71,7 +72,7 @@ Deliver deployable operator artifacts: Deployment/Helm/Kustomize, ServiceAccount
 | `MetricsAvailable` | At least one sample this cycle or within 2× interval |
 | `ActuationReady` | Actuation enabled and last patch succeeded |
 
-**Log keys:** `controller`, `workloadProfile", "namespace", "name", "reconcileID"` (use controller-runtime values).
+**Log keys:** `controller`, `workloadProfile`, `namespace`, `name`, `reconcileID` (use controller-runtime values).
 
 **Metrics:** reconcile total, errors, queue depth if available.
 
@@ -88,4 +89,4 @@ Deliver deployable operator artifacts: Deployment/Helm/Kustomize, ServiceAccount
 
 ## Open questions
 
-- **Spec gap:** `nodes` **get** for InternalIP — track amendment to spec §13.
+- None blocking; spec §13 now documents `nodes` and `nodes/proxy` alongside the CRD group.
