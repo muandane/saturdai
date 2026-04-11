@@ -17,41 +17,135 @@ limitations under the License.
 package v1
 
 import (
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// WorkloadTargetRef identifies a Deployment or StatefulSet in the same namespace as the profile.
+type WorkloadTargetRef struct {
+	// Kind is the workload type to resize.
+	// +kubebuilder:validation:Enum=Deployment;StatefulSet
+	Kind string `json:"kind"`
 
-// WorkloadProfileSpec defines the desired state of WorkloadProfile
-type WorkloadProfileSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	// Name is the metadata.name of the target workload.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+}
 
-	// foo is an example field of WorkloadProfile. Edit workloadprofile_types.go to remove/update
+// ContainerOverride sets optional min/max resource bounds for a container name from the pod template.
+type ContainerOverride struct {
+	// Name matches a container name in the workload pod template.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	MinCPU *resource.Quantity `json:"minCPU,omitempty"`
+
+	// +optional
+	MaxCPU *resource.Quantity `json:"maxCPU,omitempty"`
+
+	// +optional
+	MinMemory *resource.Quantity `json:"minMemory,omitempty"`
+
+	// +optional
+	MaxMemory *resource.Quantity `json:"maxMemory,omitempty"`
+}
+
+// WorkloadProfileSpec defines the desired state of WorkloadProfile.
+type WorkloadProfileSpec struct {
+	// TargetRef selects the Deployment or StatefulSet to manage.
+	TargetRef WorkloadTargetRef `json:"targetRef"`
+
+	// Mode selects recommendation strategy: cost, balanced, resilience, or burst.
+	// +kubebuilder:validation:Enum=cost;balanced;resilience;burst
+	// +kubebuilder:default=balanced
+	// +optional
+	Mode string `json:"mode,omitempty"`
+
+	// Containers sets optional per-container min/max resource bounds.
+	// +kubebuilder:validation:MaxItems=20
+	// +optional
+	Containers []ContainerOverride `json:"containers,omitempty"`
+
+	// CooldownMinutes is the minimum interval between actuation patches. Default 15.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:default=15
+	// +optional
+	CooldownMinutes *int32 `json:"cooldownMinutes,omitempty"`
+
+	// CollectionIntervalSeconds is how often metrics are collected. Default 30. Range 10–300.
+	// +kubebuilder:validation:Minimum=10
+	// +kubebuilder:validation:Maximum=300
+	// +kubebuilder:default=30
+	// +optional
+	CollectionIntervalSeconds *int32 `json:"collectionIntervalSeconds,omitempty"`
+}
+
+// CPUStats holds aggregate CPU metrics for status.
+type CPUStats struct {
+	EMAShort float64 `json:"emaShort"`
+	EMALong  float64 `json:"emaLong"`
+	// Sketch is a base64-encoded DDSketch protobuf.
+	Sketch string `json:"sketch"`
+	// +optional
+	LastUpdated *metav1.Time `json:"lastUpdated,omitempty"`
+}
+
+// MemoryStats holds aggregate memory metrics for status.
+type MemoryStats struct {
+	EMAShort float64 `json:"emaShort"`
+	EMALong  float64 `json:"emaLong"`
+	Sketch   string  `json:"sketch"`
+	// +optional
+	LastUpdated   *metav1.Time `json:"lastUpdated,omitempty"`
+	SlopePositive bool         `json:"slopePositive"`
+}
+
+// ContainerResourceStats is observed stats for one logical container (pod template name).
+type ContainerResourceStats struct {
+	CPU    CPUStats    `json:"cpu"`
+	Memory MemoryStats `json:"memory"`
+	// +optional
+	LastOOMKill  *metav1.Time `json:"lastOOMKill,omitempty"`
+	RestartCount int32        `json:"restartCount"`
+}
+
+// ProfileContainerStatus binds a container name to its stats in status.
+type ProfileContainerStatus struct {
+	Name  string                 `json:"name"`
+	Stats ContainerResourceStats `json:"stats"`
+}
+
+// Recommendation is a deterministic suggested patch for one container.
+type Recommendation struct {
+	ContainerName string `json:"containerName"`
+
+	CPURequest    resource.Quantity `json:"cpuRequest"`
+	CPULimit      resource.Quantity `json:"cpuLimit"`
+	MemoryRequest resource.Quantity `json:"memoryRequest"`
+	MemoryLimit   resource.Quantity `json:"memoryLimit"`
+
+	Rationale string `json:"rationale"`
 }
 
 // WorkloadProfileStatus defines the observed state of WorkloadProfile.
 type WorkloadProfileStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Containers holds per-container aggregates and signals. Bounded for etcd size (max 20).
+	// +kubebuilder:validation:MaxItems=20
+	// +optional
+	Containers []ProfileContainerStatus `json:"containers,omitempty"`
 
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	// Recommendations are computed requests/limits with human-readable rationale.
+	// +optional
+	Recommendations []Recommendation `json:"recommendations,omitempty"`
+
+	// +optional
+	LastApplied *metav1.Time `json:"lastApplied,omitempty"`
+
+	// +optional
+	LastEvaluated *metav1.Time `json:"lastEvaluated,omitempty"`
 
 	// conditions represent the current state of the WorkloadProfile resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
@@ -60,27 +154,28 @@ type WorkloadProfileStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:path=workloadprofiles,shortName=wp
+// +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.mode`
+// +kubebuilder:printcolumn:name="Target",type=string,JSONPath=`.spec.targetRef.name`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// WorkloadProfile is the Schema for the workloadprofiles API
+// WorkloadProfile is the Schema for the workloadprofiles API.
 type WorkloadProfile struct {
 	metav1.TypeMeta `json:",inline"`
 
-	// metadata is a standard object metadata
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitzero"`
 
-	// spec defines the desired state of WorkloadProfile
 	// +required
 	Spec WorkloadProfileSpec `json:"spec"`
 
-	// status defines the observed state of WorkloadProfile
 	// +optional
 	Status WorkloadProfileStatus `json:"status,omitzero"`
 }
 
 // +kubebuilder:object:root=true
 
-// WorkloadProfileList contains a list of WorkloadProfile
+// WorkloadProfileList contains a list of WorkloadProfile.
 type WorkloadProfileList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitzero"`
