@@ -7,10 +7,24 @@ This directory holds **Low-Level Design (LLD)** documents for the deterministic 
 | Layer | Path | Role |
 |-------|------|------|
 | Spec | `docs/spec/autosize-controller-spec.md` | What and why (requirements, roadmap) |
-| LLD | `docs/lld/autosize/*.md` | Engineering contract per subsystem |
+| LLD | `docs/LLD/autosize/*.md` | Engineering contract per subsystem |
 | Code | `api/`, `internal/`, etc. | Implementation |
 
 If an LLD contradicts the spec, **update the spec first**, then the LLD.
+
+## Canonical API identity (this repository)
+
+| Item | Value |
+|------|--------|
+| API group | `autosize.saturdai.auto` |
+| Version | `v1` |
+| Kind | `WorkloadProfile` |
+| Resource (URL) | `workloadprofiles` |
+| Go types | [`api/v1`](../../../api/v1) |
+| CRD manifest | [`config/crd/bases`](../../../config/crd/bases) |
+| Sample | [`config/samples/autosize_v1_workloadprofile.yaml`](../../../config/samples/autosize_v1_workloadprofile.yaml) |
+
+The high-level product name in prose may say *autosize*; the **Kubernetes API group** is always as in [`PROJECT`](../../../PROJECT).
 
 ## File naming
 
@@ -101,7 +115,7 @@ Optional: short mermaid sequence diagram when control flow is non-obvious.
 
 Reference the LLD path in the PR description, for example:
 
-`LLD: docs/lld/autosize/040-aggregate-engine.md`
+`LLD: docs/LLD/autosize/040-aggregate-engine.md`
 
 Update [README.md](./README.md) status to `implemented` when the slice is done.
 

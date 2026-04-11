@@ -11,13 +11,25 @@ spec:
     kind: WorkloadProfile
     listKind: WorkloadProfileList
     plural: workloadprofiles
+    shortNames:
+    - wp
     singular: workloadprofile
   scope: Namespaced
   versions:
-  - name: v1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.mode
+      name: Mode
+      type: string
+    - jsonPath: .spec.targetRef.name
+      name: Target
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
     schema:
       openAPIV3Schema:
-        description: WorkloadProfile is the Schema for the workloadprofiles API
+        description: WorkloadProfile is the Schema for the workloadprofiles API.
         properties:
           apiVersion:
             description: |-
@@ -37,27 +49,100 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of WorkloadProfile
+            description: WorkloadProfileSpec defines the desired state of WorkloadProfile.
             properties:
-              foo:
-                description: foo is an example field of WorkloadProfile. Edit workloadprofile_types.go
-                  to remove/update
+              collectionIntervalSeconds:
+                default: 30
+                description: CollectionIntervalSeconds is how often metrics are collected.
+                  Default 30. Range 10–300.
+                format: int32
+                maximum: 300
+                minimum: 10
+                type: integer
+              containers:
+                description: Containers sets optional per-container min/max resource
+                  bounds.
+                items:
+                  description: ContainerOverride sets optional min/max resource bounds
+                    for a container name from the pod template.
+                  properties:
+                    maxCPU:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    maxMemory:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    minCPU:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    minMemory:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    name:
+                      description: Name matches a container name in the workload pod
+                        template.
+                      minLength: 1
+                      type: string
+                  required:
+                  - name
+                  type: object
+                maxItems: 20
+                type: array
+              cooldownMinutes:
+                default: 15
+                description: CooldownMinutes is the minimum interval between actuation
+                  patches. Default 15.
+                format: int32
+                minimum: 0
+                type: integer
+              mode:
+                default: balanced
+                description: 'Mode selects recommendation strategy: cost, balanced,
+                  resilience, or burst.'
+                enum:
+                - cost
+                - balanced
+                - resilience
+                - burst
                 type: string
+              targetRef:
+                description: TargetRef selects the Deployment or StatefulSet to manage.
+                properties:
+                  kind:
+                    description: Kind is the workload type to resize.
+                    enum:
+                    - Deployment
+                    - StatefulSet
+                    type: string
+                  name:
+                    description: Name is the metadata.name of the target workload.
+                    minLength: 1
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+            required:
+            - targetRef
             type: object
           status:
-            description: status defines the observed state of WorkloadProfile
+            description: WorkloadProfileStatus defines the observed state of WorkloadProfile.
             properties:
               conditions:
-                description: |-
-                  conditions represent the current state of the WorkloadProfile resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                description: conditions represent the current state of the WorkloadProfile
+                  resource.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -116,6 +201,125 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              containers:
+                description: Containers holds per-container aggregates and signals.
+                  Bounded for etcd size (max 20).
+                items:
+                  description: ProfileContainerStatus binds a container name to its
+                    stats in status.
+                  properties:
+                    name:
+                      type: string
+                    stats:
+                      description: ContainerResourceStats is observed stats for one
+                        logical container (pod template name).
+                      properties:
+                        cpu:
+                          description: CPUStats holds aggregate CPU metrics for status.
+                          properties:
+                            emaLong:
+                              type: number
+                            emaShort:
+                              type: number
+                            lastUpdated:
+                              format: date-time
+                              type: string
+                            sketch:
+                              description: Sketch is a base64-encoded DDSketch protobuf.
+                              type: string
+                          required:
+                          - emaLong
+                          - emaShort
+                          - sketch
+                          type: object
+                        lastOOMKill:
+                          format: date-time
+                          type: string
+                        memory:
+                          description: MemoryStats holds aggregate memory metrics
+                            for status.
+                          properties:
+                            emaLong:
+                              type: number
+                            emaShort:
+                              type: number
+                            lastUpdated:
+                              format: date-time
+                              type: string
+                            sketch:
+                              type: string
+                            slopePositive:
+                              type: boolean
+                          required:
+                          - emaLong
+                          - emaShort
+                          - sketch
+                          - slopePositive
+                          type: object
+                        restartCount:
+                          format: int32
+                          type: integer
+                      required:
+                      - cpu
+                      - memory
+                      - restartCount
+                      type: object
+                  required:
+                  - name
+                  - stats
+                  type: object
+                maxItems: 20
+                type: array
+              lastApplied:
+                format: date-time
+                type: string
+              lastEvaluated:
+                format: date-time
+                type: string
+              recommendations:
+                description: Recommendations are computed requests/limits with human-readable
+                  rationale.
+                items:
+                  description: Recommendation is a deterministic suggested patch for
+                    one container.
+                  properties:
+                    containerName:
+                      type: string
+                    cpuLimit:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    cpuRequest:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    memoryLimit:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    memoryRequest:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    rationale:
+                      type: string
+                  required:
+                  - containerName
+                  - cpuLimit
+                  - cpuRequest
+                  - memoryLimit
+                  - memoryRequest
+                  - rationale
+                  type: object
+                type: array
             type: object
         required:
         - spec

@@ -4,6 +4,10 @@
 
 Mutating admission webhook on **Pod create** that injects `resources` into `pod.spec.containers[]` when the pod belongs to a workload covered by a `WorkloadProfile`: prefer **last known recommendations** from profile status; otherwise fall back to global defaults (120). Implements spec §11 “Admission Webhook (cold-start)” and supports §12 cold start.
 
+### CRD group vs annotation prefix
+
+The **`WorkloadProfile`** resource uses API group **`autosize.saturdai.auto`**. Annotation keys in this LLD (e.g. `autosize.io/inject`, `autosize.io/webhook`) use a **logical product prefix** and are **not** required to match the CRD group. When implementing the webhook, either keep `autosize.io/*` as stable user-facing annotations or migrate to a prefix aligned with your domain (e.g. `saturdai.auto/*`) and document the choice in release notes.
+
 ## Spec traceability
 
 | Spec § | Requirement (summary) |

@@ -67,8 +67,10 @@ Key differences from existing tools:
 
 ## 4. Custom Resource Definition
 
+**Canonical API group (this repository):** `autosize.saturdai.auto/v1`. Earlier drafts used the placeholder group `autosize.io`; all copy-paste YAML and RBAC must use the group from [`PROJECT`](../../PROJECT) / generated CRDs.
+
 ```yaml
-apiVersion: autosize.io/v1
+apiVersion: autosize.saturdai.auto/v1
 kind: WorkloadProfile
 metadata:
   name: my-app
@@ -312,6 +314,8 @@ Every recommendation in `status.recommendations[].rationale` must be a human-rea
 
 ## 10. Reconciliation Loop
 
+Pseudocode; production code lives under `internal/controller/` and imports `github.com/muandane/saturdai/api/v1` as `autosizev1`.
+
 ```go
 func (r *WorkloadProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
     profile := &autosizev1.WorkloadProfile{}
@@ -392,18 +396,25 @@ func (r *WorkloadProfileReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 ## 13. RBAC Requirements
 
+Minimum logical rules below. The **implemented** ClusterRole is generated from `+kubebuilder:rbac` markers — see [`config/rbac/role.yaml`](../../config/rbac/role.yaml).
+
+Kubelet metrics are read via the API server **node proxy** (`GET /api/v1/nodes/{name}/proxy/stats/summary`), which requires `nodes` **get/list/watch** and `nodes/proxy` **get** (not only `nodes/stats`).
+
 ```yaml
 rules:
 - apiGroups: [""]
   resources: ["pods"]
   verbs: ["get", "list", "watch"]
 - apiGroups: [""]
-  resources: ["nodes/stats"]          # kubelet /stats/summary
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["nodes/proxy"]
   verbs: ["get"]
 - apiGroups: ["apps"]
   resources: ["deployments", "statefulsets"]
   verbs: ["get", "list", "watch", "patch"]
-- apiGroups: ["autosize.io"]
+- apiGroups: ["autosize.saturdai.auto"]
   resources: ["workloadprofiles", "workloadprofiles/status"]
   verbs: ["get", "list", "watch", "create", "update", "patch"]
 ```
@@ -456,7 +467,7 @@ No Prometheus. No VPA. No external store.
 - Hour-of-day bucketing (24 sketch slots per container)
 - Automatic burst/off-peak profile switching
 
-**Low-level designs:** Per-subsystem engineering contracts (traceability, APIs, test plans) live under [`docs/lld/autosize/`](../lld/autosize/README.md), indexed by phase and dependency order.
+**Low-level designs:** Per-subsystem engineering contracts (traceability, APIs, test plans) live under [`docs/LLD/autosize/`](../LLD/autosize/README.md), indexed by phase and dependency order.
 
 ---
 

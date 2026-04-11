@@ -2,23 +2,38 @@
 
 Low-level designs for the deterministic autosizing controller. Requirements: [autosize-controller-spec.md](../../spec/autosize-controller-spec.md). Conventions: [000-doc-conventions.md](./000-doc-conventions.md).
 
+## Implementation map (code)
+
+| Area | Packages / paths |
+|------|------------------|
+| API types & CRD | [`api/v1`](../../../api/v1), [`config/crd/bases`](../../../config/crd/bases) |
+| Reconcile | [`internal/controller`](../../../internal/controller) |
+| Target resolution | [`internal/target`](../../../internal/target) |
+| Kubelet summary | [`internal/kubelet`](../../../internal/kubelet) |
+| EMA / DDSketch | [`internal/aggregate`](../../../internal/aggregate) |
+| Pod signals | [`internal/podsignals`](../../../internal/podsignals) |
+| Recommendations | [`internal/recommend`](../../../internal/recommend) |
+| Safety | [`internal/safety`](../../../internal/safety) |
+| Actuation (PATCH) | [`internal/actuate`](../../../internal/actuate) |
+| Spec defaults (in-process) | [`internal/defaults`](../../../internal/defaults) |
+
 ## Status and tracking
 
 | LLD | Document | Phase | Status | Issue |
 |-----|----------|-------|--------|-------|
 | 000 | [Conventions](./000-doc-conventions.md) | Foundation | reviewed | — |
-| 010 | [WorkloadProfile API](./010-workloadprofile-api.md) | Core | draft | autosize-010 |
-| 020 | [Target resolution](./020-target-resolution.md) | Core | draft | autosize-020 |
-| 030 | [Kubelet stats client](./030-kubelet-stats-client.md) | Core | draft | autosize-030 |
-| 040 | [Aggregate engine](./040-aggregate-engine.md) | Core | draft | autosize-040 |
-| 050 | [Pod signals](./050-pod-signals.md) | Core | draft | autosize-050 |
-| 060 | [Recommendation engine](./060-recommendation-engine.md) | Core | draft | autosize-060 |
-| 070 | [Safety layer](./070-safety-layer.md) | Core | draft | autosize-070 |
-| 080 | [Observe reconcile](./080-observe-reconcile.md) | Core | draft | autosize-080 |
-| 090 | [Actuation](./090-actuation.md) | Core | draft | autosize-090 |
-| 100 | [Packaging and RBAC](./100-packaging-rbac.md) | Core | draft | autosize-100 |
+| 010 | [WorkloadProfile API](./010-workloadprofile-api.md) | Core | implemented | autosize-010 |
+| 020 | [Target resolution](./020-target-resolution.md) | Core | implemented | autosize-020 |
+| 030 | [Kubelet stats client](./030-kubelet-stats-client.md) | Core | implemented | autosize-030 |
+| 040 | [Aggregate engine](./040-aggregate-engine.md) | Core | implemented | autosize-040 |
+| 050 | [Pod signals](./050-pod-signals.md) | Core | implemented | autosize-050 |
+| 060 | [Recommendation engine](./060-recommendation-engine.md) | Core | implemented | autosize-060 |
+| 070 | [Safety layer](./070-safety-layer.md) | Core | implemented | autosize-070 |
+| 080 | [Observe reconcile](./080-observe-reconcile.md) | Core | implemented | autosize-080 |
+| 090 | [Actuation](./090-actuation.md) | Core | implemented | autosize-090 |
+| 100 | [Packaging and RBAC](./100-packaging-rbac.md) | Core | implemented | autosize-100 |
 | 110 | [Admission webhook](./110-admission-webhook.md) | Admission | draft | autosize-110 |
-| 120 | [Global defaults ConfigMap](./120-global-defaults-configmap.md) | Admission | draft | autosize-120 |
+| 120 | [Global defaults ConfigMap](./120-global-defaults-configmap.md) | Admission | partial | autosize-120 |
 | 200 | [DRA integration](./200-dra-integration.md) | Future | stub | autosize-200 |
 | 300 | [Node-aware optimization](./300-node-aware-optimization.md) | Future | stub | autosize-300 |
 | 400 | [Time-based patterns](./400-time-based-patterns.md) | Future | stub | autosize-400 |
@@ -52,7 +67,7 @@ Replace the **Issue** column in the table above with your tracker ID (e.g. `http
 
 Every implementation PR must:
 
-1. Include **`LLD: docs/lld/autosize/NNN-name.md`** in the description (path to the design being implemented).
+1. Include **`LLD: docs/LLD/autosize/NNN-name.md`** in the description (path to the design being implemented).
 2. Update the **Status** column for that row to `implemented` when the slice is complete.
 
 ## Dependency graph

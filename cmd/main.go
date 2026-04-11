@@ -20,6 +20,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -27,6 +28,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -37,6 +39,8 @@ import (
 
 	autosizev1 "github.com/muandane/saturdai/api/v1"
 	"github.com/muandane/saturdai/internal/controller"
+	"github.com/muandane/saturdai/internal/kubelet"
+	"github.com/muandane/saturdai/internal/target"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -154,7 +158,14 @@ func main() {
 		metricsServerOptions.KeyName = metricsCertKey
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	cfg := ctrl.GetConfigOrDie()
+	kubeClient, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		setupLog.Error(err, "Failed to create Kubernetes clientset")
+		os.Exit(1)
+	}
+
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		WebhookServer:          webhookServer,
@@ -179,8 +190,10 @@ func main() {
 	}
 
 	if err := (&controller.WorkloadProfileReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Target:  target.NewResolver(mgr.GetClient()),
+		Kubelet: kubelet.NewClient(kubeClient, 15*time.Second),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "WorkloadProfile")
 		os.Exit(1)

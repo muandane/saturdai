@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the `WorkloadProfile` CRD (`autosize.io/v1`): field semantics, validation, defaulting, status subresource shape, and etcd size constraints so downstream LLDs share one stable API contract. Grounded in spec §4 and §6.
+Define the `WorkloadProfile` CRD (`autosize.saturdai.auto/v1`): field semantics, validation, defaulting, status subresource shape, and etcd size constraints so downstream LLDs share one stable API contract. Grounded in spec §4 and §6.
 
 ## Spec traceability
 
@@ -25,7 +25,7 @@ Define the `WorkloadProfile` CRD (`autosize.io/v1`): field semantics, validation
 
 ## Data model / API surface
 
-- **Group/version:** `autosize.io/v1`, kind `WorkloadProfile`.
+- **Group/version:** `autosize.saturdai.auto/v1`, kind `WorkloadProfile` (see repo [`PROJECT`](../../../PROJECT)).
 - **Spec fields:**
   - `targetRef`: `kind` enum `Deployment|StatefulSet`, `name` string (required).
   - `mode`: enum `cost|balanced|resilience|burst`; default `balanced`.

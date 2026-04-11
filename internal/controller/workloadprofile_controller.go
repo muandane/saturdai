@@ -25,33 +25,38 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	autosizev1 "github.com/muandane/saturdai/api/v1"
+	"github.com/muandane/saturdai/internal/kubelet"
+	"github.com/muandane/saturdai/internal/target"
 )
 
-// WorkloadProfileReconciler reconciles a WorkloadProfile object
+// WorkloadProfileReconciler reconciles a WorkloadProfile object.
 type WorkloadProfileReconciler struct {
-	client.Client
-	Scheme *runtime.Scheme
+	Client  client.Client
+	Scheme  *runtime.Scheme
+	Target  *target.Resolver
+	Kubelet kubelet.Interface
 }
 
 // +kubebuilder:rbac:groups=autosize.saturdai.auto,resources=workloadprofiles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=autosize.saturdai.auto,resources=workloadprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=autosize.saturdai.auto,resources=workloadprofiles/finalizers,verbs=update
+// +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=nodes/proxy,verbs=get
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the WorkloadProfile object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.3/pkg/reconcile
+// Reconcile implements the autosizing observe/actuation loop.
 func (r *WorkloadProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
-
-	// TODO(user): your logic here
-
-	return ctrl.Result{}, nil
+	logger := logf.FromContext(ctx)
+	profile := &autosizev1.WorkloadProfile{}
+	if err := r.Client.Get(ctx, req.NamespacedName, profile); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if err := r.reconcile(ctx, profile); err != nil {
+		logger.Error(err, "reconcile WorkloadProfile")
+		return ctrl.Result{RequeueAfter: requeueAfter(profile)}, err
+	}
+	return ctrl.Result{RequeueAfter: requeueAfter(profile)}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
