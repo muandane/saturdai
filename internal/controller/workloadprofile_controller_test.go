@@ -211,6 +211,12 @@ var _ = Describe("WorkloadProfile Controller", func() {
 			}
 			Expect(k8sClient.Create(ctx, pod)).To(Succeed())
 
+			By("setting collection interval for exact RequeueAfter (spec §12 max(10s, interval))")
+			Expect(k8sClient.Get(ctx, typeNamespacedName, workloadprofile)).To(Succeed())
+			interval := int32(25)
+			workloadprofile.Spec.CollectionIntervalSeconds = &interval
+			Expect(k8sClient.Update(ctx, workloadprofile)).To(Succeed())
+
 			controllerReconciler := &WorkloadProfileReconciler{
 				Client:   k8sClient,
 				Scheme:   k8sClient.Scheme(),
@@ -227,19 +233,23 @@ var _ = Describe("WorkloadProfile Controller", func() {
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(res.RequeueAfter).To(BeNumerically(">=", 10*time.Second))
+			Expect(res.RequeueAfter).To(Equal(25 * time.Second))
 
 			Expect(k8sClient.Get(ctx, typeNamespacedName, workloadprofile)).To(Succeed())
-			var metricsCond, readyCond *metav1.Condition
+			var targetCond, metricsCond, readyCond *metav1.Condition
 			for i := range workloadprofile.Status.Conditions {
 				c := &workloadprofile.Status.Conditions[i]
 				switch c.Type {
+				case autosizev1.ConditionTypeTargetResolved:
+					targetCond = c
 				case autosizev1.ConditionTypeMetricsAvailable:
 					metricsCond = c
 				case autosizev1.ConditionTypeProfileReady:
 					readyCond = c
 				}
 			}
+			Expect(targetCond).NotTo(BeNil())
+			Expect(targetCond.Status).To(Equal(metav1.ConditionTrue))
 			Expect(metricsCond).NotTo(BeNil(), "MetricsAvailable condition should be set")
 			Expect(metricsCond.Status).To(Equal(metav1.ConditionFalse))
 			Expect(metricsCond.Reason).To(Equal("KubeletUnavailable"))
