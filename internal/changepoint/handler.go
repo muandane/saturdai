@@ -5,7 +5,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 )
 
 // ShiftEvent is emitted when CUSUM detects a distributional shift.
@@ -48,7 +48,7 @@ func (d *Detector) Notify(e ShiftEvent) {
 
 // EventRecorderHandler emits a Kubernetes Event on each shift (primary observability path).
 type EventRecorderHandler struct {
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 }
 
 // OnShift implements Handler.
@@ -56,7 +56,7 @@ func (h EventRecorderHandler) OnShift(e ShiftEvent) {
 	if h.Recorder == nil || e.InvolvedObject == nil {
 		return
 	}
-	h.Recorder.Eventf(e.InvolvedObject, corev1.EventTypeNormal, "CusumShift",
+	h.Recorder.Eventf(e.InvolvedObject, nil, corev1.EventTypeNormal, "CusumShift", "CusumShiftDetected",
 		"CUSUM shift detected for container %s (%s): oldMean=%.2f newMean=%.2f",
 		e.ContainerName, e.Resource, e.OldMean, e.NewMean)
 }

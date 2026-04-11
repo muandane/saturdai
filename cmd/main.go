@@ -202,7 +202,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	recorder := mgr.GetEventRecorderFor("workloadprofile-controller")
+	recorder := mgr.GetEventRecorder("workloadprofile-controller")
 	if err := (&controller.WorkloadProfileReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
