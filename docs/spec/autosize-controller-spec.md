@@ -456,6 +456,8 @@ No Prometheus. No VPA. No external store.
 - Hour-of-day bucketing (24 sketch slots per container)
 - Automatic burst/off-peak profile switching
 
+**Low-level designs:** Per-subsystem engineering contracts (traceability, APIs, test plans) live under [`docs/lld/autosize/`](../lld/autosize/README.md), indexed by phase and dependency order.
+
 ---
 
 ## 16. Constraints (Non-Negotiable)
