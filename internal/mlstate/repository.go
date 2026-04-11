@@ -76,6 +76,27 @@ func (r *ConfigMapRepository) Load(ctx context.Context, profile *autosizev1.Work
 	if state.HW == nil {
 		state.HW = map[string]*ContainerHW{}
 	}
+	for _, fb := range state.Feedback {
+		recommend.MigrateLegacyFeedback(fb)
+	}
+	for _, cu := range state.CUSUM {
+		if cu == nil {
+			continue
+		}
+		cu.CPU.Sanitize()
+		cu.Memory.Sanitize()
+	}
+	for _, hw := range state.HW {
+		if hw == nil {
+			continue
+		}
+		if hw.CPU != nil {
+			hw.CPU.Sanitize()
+		}
+		if hw.Memory != nil {
+			hw.Memory.Sanitize()
+		}
+	}
 	return state, nil
 }
 

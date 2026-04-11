@@ -12,6 +12,13 @@ import (
 	"github.com/muandane/saturdai/internal/aggregate"
 )
 
+// minQuadrantSketchCount is the minimum DDSketch sample count before quadrant quantiles are trusted over the global sketch.
+const minQuadrantSketchCount = 30.0
+
+func sketchHasEnoughSamples(sk *ddsketch.DDSketch) bool {
+	return sk != nil && !sk.IsEmpty() && sk.GetCount() >= minQuadrantSketchCount
+}
+
 // Input carries per-container metrics for recommendation.
 type Input struct {
 	ContainerName string
@@ -35,14 +42,14 @@ type Input struct {
 }
 
 func effectiveCPUSketch(in Input) *ddsketch.DDSketch {
-	if sk := in.QuadrantCPUSketch; sk != nil && !sk.IsEmpty() {
+	if sk := in.QuadrantCPUSketch; sketchHasEnoughSamples(sk) {
 		return sk
 	}
 	return in.CPUSketch
 }
 
 func effectiveMemSketch(in Input) *ddsketch.DDSketch {
-	if sk := in.QuadrantMemSketch; sk != nil && !sk.IsEmpty() {
+	if sk := in.QuadrantMemSketch; sketchHasEnoughSamples(sk) {
 		return sk
 	}
 	return in.MemSketch

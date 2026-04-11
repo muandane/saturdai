@@ -144,6 +144,8 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 		byName[cname] = st
 	}
 
+	pruneMLState(mlState, tplNames)
+
 	profile.Status.Containers = flattenContainerStatus(byName, tplNames)
 
 	minMax := overridesMap(profile)
@@ -216,7 +218,7 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 	if err := r.persistStatus(ctx, profile); err != nil {
 		return err
 	}
-	return r.saveMLState(ctx, profile, mlState)
+	return nil
 }
 
 type minMax struct {
@@ -299,7 +301,7 @@ func collectUsageForContainer(summaries map[string]*kubelet.Summary, ns string, 
 	if memN > 0 {
 		memBytes = memSum / float64(memN)
 	}
-	return cpuMilli, memBytes, thr, use
+	return aggregate.FiniteOrZero(cpuMilli), aggregate.FiniteOrZero(memBytes), thr, use
 }
 
 func currentResourcesFromTemplate(obj runtime.Object, names []string) (map[string]corev1.ResourceRequirements, error) {

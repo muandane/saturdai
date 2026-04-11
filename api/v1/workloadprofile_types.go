@@ -177,6 +177,7 @@ type WorkloadProfileStatus struct {
 // +kubebuilder:resource:path=workloadprofiles,shortName=wp
 // +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.mode`
 // +kubebuilder:printcolumn:name="Target",type=string,JSONPath=`.spec.targetRef.name`
+// +kubebuilder:printcolumn:name="Pause",type=integer,JSONPath=`.status.downsizePauseCyclesRemaining`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // WorkloadProfile is the Schema for the workloadprofiles API.

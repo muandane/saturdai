@@ -30,11 +30,12 @@ func decodeSketch(encoded string) (*ddsketch.DDSketch, error) {
 
 // Update decodes the sketch, always Add(Value), encodes, then updates EMA only when Value > 0.
 func Update(s ResourceSample) error {
+	val := FiniteOrZero(s.Value)
 	sk, err := decodeSketch(s.GetSketch())
 	if err != nil {
 		return err
 	}
-	if err := sk.Add(s.Value); err != nil && s.OnAddError != nil {
+	if err := sk.Add(val); err != nil && s.OnAddError != nil {
 		s.OnAddError(err)
 	}
 	encoded, err := SketchToBase64(sk)
@@ -43,10 +44,15 @@ func Update(s ResourceSample) error {
 	}
 	s.SetSketch(encoded)
 
-	if s.Value > 0 {
+	if val > 0 {
 		short, long := s.GetEMA()
-		short, long = UpdateEMA(short, long, s.Value)
+		short, long = UpdateEMA(FiniteOrZero(short), FiniteOrZero(long), val)
+		short, long = sanitizeEMA(short, long)
 		s.SetEMA(short, long)
 	}
 	return nil
+}
+
+func sanitizeEMA(short, long float64) (float64, float64) {
+	return FiniteOrZero(short), FiniteOrZero(long)
 }

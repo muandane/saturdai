@@ -59,28 +59,32 @@ func (r *WorkloadProfileReconciler) ingestContainerMetrics(
 	if cu.CPU.Update(cpuMilli, cpuLongBefore, changepoint.DefaultCPUConfig) {
 		if r.Detector != nil {
 			r.Detector.Notify(changepoint.ShiftEvent{
-				ContainerName: cname,
-				Resource:      "cpu",
-				At:            r.now(),
-				OldMean:       cpuLongBefore,
-				NewMean:       cpuMilli,
+				InvolvedObject: profile,
+				ContainerName:  cname,
+				Resource:       "cpu",
+				At:             r.now(),
+				OldMean:        cpuLongBefore,
+				NewMean:        cpuMilli,
 			})
 		}
 		cu.CPU.Reset()
 		st.Stats.CPU.Sketch = ""
+		clearQuadrantSketches(&st.Stats.CPU.QuadrantSketches)
 	}
 	if cu.Memory.Update(memBytes, memLongBefore, changepoint.DefaultMemConfig) {
 		if r.Detector != nil {
 			r.Detector.Notify(changepoint.ShiftEvent{
-				ContainerName: cname,
-				Resource:      "memory",
-				At:            r.now(),
-				OldMean:       memLongBefore,
-				NewMean:       memBytes,
+				InvolvedObject: profile,
+				ContainerName:  cname,
+				Resource:       "memory",
+				At:             r.now(),
+				OldMean:        memLongBefore,
+				NewMean:        memBytes,
 			})
 		}
 		cu.Memory.Reset()
 		st.Stats.Memory.Sketch = ""
+		clearQuadrantSketches(&st.Stats.Memory.QuadrantSketches)
 	}
 
 	utc := r.now().UTC()

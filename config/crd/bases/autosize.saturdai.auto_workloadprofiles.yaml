@@ -23,6 +23,9 @@ spec:
     - jsonPath: .spec.targetRef.name
       name: Target
       type: string
+    - jsonPath: .status.downsizePauseCyclesRemaining
+      name: Pause
+      type: integer
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date

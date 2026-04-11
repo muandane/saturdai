@@ -202,6 +202,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	recorder := mgr.GetEventRecorderFor("workloadprofile-controller")
 	if err := (&controller.WorkloadProfileReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
@@ -209,7 +210,7 @@ func main() {
 		Kubelet:  kubelet.NewClient(kubeClient, 15*time.Second),
 		Clock:    time.Now,
 		MLState:  mlstate.NewConfigMapRepository(mgr.GetClient()),
-		Detector: changepoint.NewDetector(),
+		Detector: changepoint.NewDetector(changepoint.EventRecorderHandler{Recorder: recorder}),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "WorkloadProfile")
 		os.Exit(1)

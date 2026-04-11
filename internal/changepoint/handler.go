@@ -1,6 +1,12 @@
 package changepoint
 
-import "time"
+import (
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
+)
 
 // ShiftEvent is emitted when CUSUM detects a distributional shift.
 type ShiftEvent struct {
@@ -9,6 +15,8 @@ type ShiftEvent struct {
 	At            time.Time
 	OldMean       float64
 	NewMean       float64
+	// InvolvedObject is the WorkloadProfile (or other) used as the Kubernetes Event subject.
+	InvolvedObject runtime.Object
 }
 
 // Handler reacts to a detected shift.
@@ -38,14 +46,17 @@ func (d *Detector) Notify(e ShiftEvent) {
 	}
 }
 
-// SketchDecayHandler forwards shifts to a reconciler callback (sketch reset owned by caller).
-type SketchDecayHandler struct {
-	OnDecay func(container, resource string)
+// EventRecorderHandler emits a Kubernetes Event on each shift (primary observability path).
+type EventRecorderHandler struct {
+	Recorder record.EventRecorder
 }
 
 // OnShift implements Handler.
-func (h SketchDecayHandler) OnShift(e ShiftEvent) {
-	if h.OnDecay != nil {
-		h.OnDecay(e.ContainerName, e.Resource)
+func (h EventRecorderHandler) OnShift(e ShiftEvent) {
+	if h.Recorder == nil || e.InvolvedObject == nil {
+		return
 	}
+	h.Recorder.Eventf(e.InvolvedObject, corev1.EventTypeNormal, "CusumShift",
+		"CUSUM shift detected for container %s (%s): oldMean=%.2f newMean=%.2f",
+		e.ContainerName, e.Resource, e.OldMean, e.NewMean)
 }

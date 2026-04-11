@@ -26,6 +26,8 @@ Heavy or evolving **learned** state (CUSUM, feedback, Holt–Winters) is stored 
 
 The manager **ClusterRole** includes ConfigMap verbs for these objects. See [Implementation status](docs/implementation-status.md) for a feature checklist.
 
+`recommend.Compute` constructs `New(mode, NoopBias{})` on each call (fine for tests); the reconciler uses `recommend.New` with `LiveBias` for production.
+
 ## Getting Started
 
 ### Prerequisites

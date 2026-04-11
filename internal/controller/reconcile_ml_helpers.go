@@ -69,3 +69,33 @@ func quadSketchSet(sk *[]string, i int, v string) {
 	}
 	(*sk)[i] = v
 }
+
+// clearQuadrantSketches resets all UTC quadrant buckets (used when global sketch is cleared on CUSUM shift).
+func clearQuadrantSketches(sk *[]string) {
+	*sk = nil
+}
+
+func pruneMLState(ml *mlstate.MLState, active []string) {
+	if ml == nil {
+		return
+	}
+	activeSet := make(map[string]struct{}, len(active))
+	for _, n := range active {
+		activeSet[n] = struct{}{}
+	}
+	for k := range ml.CUSUM {
+		if _, ok := activeSet[k]; !ok {
+			delete(ml.CUSUM, k)
+		}
+	}
+	for k := range ml.Feedback {
+		if _, ok := activeSet[k]; !ok {
+			delete(ml.Feedback, k)
+		}
+	}
+	for k := range ml.HW {
+		if _, ok := activeSet[k]; !ok {
+			delete(ml.HW, k)
+		}
+	}
+}

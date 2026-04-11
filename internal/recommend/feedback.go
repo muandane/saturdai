@@ -15,36 +15,84 @@ const (
 	biasMaxDown = 0.85
 )
 
-// ContainerFeedback tracks prediction accuracy for one container (combined CPU/memory ratio EWMA).
+// ContainerFeedback tracks prediction accuracy per resource (EWMA of actual/recommended).
 type ContainerFeedback struct {
-	PredictionRatio float64 `json:"predictionRatio"`
-	SampleCount     int32   `json:"sampleCount"`
+	CPURatio    float64 `json:"cpuRatio"`
+	MemRatio    float64 `json:"memRatio"`
+	CPUSamples  int32   `json:"cpuSamples,omitempty"`
+	MemSamples  int32   `json:"memSamples,omitempty"`
+	SampleCount int32   `json:"sampleCount"`
+	// PredictionRatioLegacy is only present in older persisted JSON; migrated on load.
+	PredictionRatioLegacy float64 `json:"predictionRatio,omitempty"`
+}
+
+// MigrateLegacyFeedback copies legacy predictionRatio into CPURatio/MemRatio when new fields are unset.
+func MigrateLegacyFeedback(f *ContainerFeedback) {
+	if f == nil {
+		return
+	}
+	if f.PredictionRatioLegacy > 0 && f.CPURatio == 0 && f.MemRatio == 0 {
+		f.CPURatio = f.PredictionRatioLegacy
+		f.MemRatio = f.PredictionRatioLegacy
+	}
+	f.PredictionRatioLegacy = 0
+	SanitizeFeedbackRatios(f)
+}
+
+// SanitizeFeedbackRatios clears non-finite ratio fields (e.g. corrupt persisted JSON) so mlstate marshals safely.
+func SanitizeFeedbackRatios(f *ContainerFeedback) {
+	if f == nil {
+		return
+	}
+	if !ratioFieldOK(f.CPURatio) {
+		f.CPURatio = 0
+	}
+	if !ratioFieldOK(f.MemRatio) {
+		f.MemRatio = 0
+	}
+}
+
+func ratioFieldOK(x float64) bool {
+	return !math.IsNaN(x) && !math.IsInf(x, 0)
 }
 
 // RecordUsage compares observed kubelet usage to the previous reconcile's post-safety
 // WorkloadProfile.Status.Recommendations (same basis as actuation), in millicores and bytes.
 func (f *ContainerFeedback) RecordUsage(cpuActual, cpuRecommendedMilli, memActual, memRecommendedBytes float64) {
-	var ratios []float64
-	if cpuRecommendedMilli > 0 {
-		ratios = append(ratios, cpuActual/cpuRecommendedMilli)
+	if cpuRecommendedMilli > 0 && ratioFieldOK(cpuActual) && ratioFieldOK(cpuRecommendedMilli) {
+		r := cpuActual / cpuRecommendedMilli
+		if !ratioFieldOK(r) {
+			r = 1.0
+		}
+		if f.CPUSamples == 0 {
+			f.CPURatio = r
+		} else {
+			f.CPURatio = biasAlpha*r + (1-biasAlpha)*f.CPURatio
+		}
+		f.CPURatio = feedbackFiniteRatio(f.CPURatio)
+		f.CPUSamples++
 	}
-	if memRecommendedBytes > 0 {
-		ratios = append(ratios, memActual/memRecommendedBytes)
-	}
-	if len(ratios) == 0 {
-		return
-	}
-	sum := 0.0
-	for _, r := range ratios {
-		sum += r
-	}
-	ratio := sum / float64(len(ratios))
-	if f.SampleCount == 0 {
-		f.PredictionRatio = ratio
-	} else {
-		f.PredictionRatio = biasAlpha*ratio + (1-biasAlpha)*f.PredictionRatio
+	if memRecommendedBytes > 0 && ratioFieldOK(memActual) && ratioFieldOK(memRecommendedBytes) {
+		r := memActual / memRecommendedBytes
+		if !ratioFieldOK(r) {
+			r = 1.0
+		}
+		if f.MemSamples == 0 {
+			f.MemRatio = r
+		} else {
+			f.MemRatio = biasAlpha*r + (1-biasAlpha)*f.MemRatio
+		}
+		f.MemRatio = feedbackFiniteRatio(f.MemRatio)
+		f.MemSamples++
 	}
 	f.SampleCount++
+}
+
+func feedbackFiniteRatio(x float64) float64 {
+	if ratioFieldOK(x) {
+		return x
+	}
+	return 1.0
 }
 
 // LiveBias implements BiasProvider from persisted feedback state.
@@ -57,15 +105,23 @@ func NewLiveBias(state map[string]*ContainerFeedback) *LiveBias {
 	return &LiveBias{state: state}
 }
 
-// PredictionRatio implements BiasProvider.
-func (b *LiveBias) PredictionRatio(container string) float64 {
+// PredictionRatios implements BiasProvider (clamped factors for rationale; matches Apply scaling).
+func (b *LiveBias) PredictionRatios(container string) (cpuRatio, memRatio float64) {
 	if b == nil || b.state == nil {
-		return 1.0
+		return 1.0, 1.0
 	}
-	if f, ok := b.state[container]; ok && f != nil && f.SampleCount >= minSamples {
-		return f.PredictionRatio
+	f, ok := b.state[container]
+	if !ok || f == nil || f.SampleCount < minSamples {
+		return 1.0, 1.0
 	}
-	return 1.0
+	cpuR, memR := 1.0, 1.0
+	if f.CPUSamples > 0 && f.CPURatio > 0 {
+		cpuR = clampBiasRatio(f.CPURatio)
+	}
+	if f.MemSamples > 0 && f.MemRatio > 0 {
+		memR = clampBiasRatio(f.MemRatio)
+	}
+	return cpuR, memR
 }
 
 // Apply implements BiasProvider.
@@ -77,23 +133,32 @@ func (b *LiveBias) Apply(rec autosizev1.Recommendation, in Input) autosizev1.Rec
 	if !ok || f == nil || f.SampleCount < minSamples {
 		return rec
 	}
-	ratio := clampFloat(f.PredictionRatio, biasMaxDown, biasMaxUp)
-	if math.Abs(ratio-1.0) < biasRationaleEpsilon {
+	cpuR, memR := 1.0, 1.0
+	if f.CPUSamples > 0 && f.CPURatio > 0 {
+		cpuR = clampBiasRatio(f.CPURatio)
+	}
+	if f.MemSamples > 0 && f.MemRatio > 0 {
+		memR = clampBiasRatio(f.MemRatio)
+	}
+	if math.Abs(cpuR-1.0) < biasRationaleEpsilon && math.Abs(memR-1.0) < biasRationaleEpsilon {
 		return rec
 	}
-	rec.CPURequest = scaleMilliQty(rec.CPURequest, ratio)
-	rec.CPULimit = scaleMilliQty(rec.CPULimit, ratio)
-	rec.MemoryRequest = scaleBytesQty(rec.MemoryRequest, ratio)
-	rec.MemoryLimit = scaleBytesQty(rec.MemoryLimit, ratio)
+	rec.CPURequest = scaleMilliQty(rec.CPURequest, cpuR)
+	rec.CPULimit = scaleMilliQty(rec.CPULimit, cpuR)
+	rec.MemoryRequest = scaleBytesQty(rec.MemoryRequest, memR)
+	rec.MemoryLimit = scaleBytesQty(rec.MemoryLimit, memR)
 	return rec
 }
 
-func clampFloat(x, lo, hi float64) float64 {
-	if x < lo {
-		return lo
+func clampBiasRatio(x float64) float64 {
+	if !ratioFieldOK(x) {
+		return 1.0
 	}
-	if x > hi {
-		return hi
+	if x < biasMaxDown {
+		return biasMaxDown
+	}
+	if x > biasMaxUp {
+		return biasMaxUp
 	}
 	return x
 }
