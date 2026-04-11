@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -30,10 +31,31 @@ func benignStatusAPIErr(err error) bool {
 	return false
 }
 
+func sanitizeStatusFloats(st *autosizev1.WorkloadProfileStatus) {
+	if st == nil {
+		return
+	}
+	for i := range st.Containers {
+		c := &st.Containers[i]
+		c.Stats.CPU.EMAShort = statusFiniteOrZero(c.Stats.CPU.EMAShort)
+		c.Stats.CPU.EMALong = statusFiniteOrZero(c.Stats.CPU.EMALong)
+		c.Stats.Memory.EMAShort = statusFiniteOrZero(c.Stats.Memory.EMAShort)
+		c.Stats.Memory.EMALong = statusFiniteOrZero(c.Stats.Memory.EMALong)
+	}
+}
+
+func statusFiniteOrZero(x float64) float64 {
+	if math.IsNaN(x) || math.IsInf(x, 0) {
+		return 0
+	}
+	return x
+}
+
 // persistStatus re-fetches the WorkloadProfile, copies profile.Status onto the live
 // object, and writes status. Handles delete races and conflicts.
 func (r *WorkloadProfileReconciler) persistStatus(ctx context.Context, profile *autosizev1.WorkloadProfile) error {
 	logger := log.FromContext(ctx)
+	sanitizeStatusFloats(&profile.Status)
 	key := types.NamespacedName{Namespace: profile.Namespace, Name: profile.Name}
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		fresh := &autosizev1.WorkloadProfile{}

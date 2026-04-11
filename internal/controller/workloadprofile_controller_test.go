@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -31,9 +32,22 @@ import (
 	. "github.com/onsi/gomega"
 
 	autosizev1 "github.com/muandane/saturdai/api/v1"
+	"github.com/muandane/saturdai/internal/changepoint"
 	"github.com/muandane/saturdai/internal/kubelet"
+	"github.com/muandane/saturdai/internal/mlstate"
 	"github.com/muandane/saturdai/internal/target"
 )
+
+// testMLRepo satisfies mlstate.Repository without persisting (envtest isolation).
+type testMLRepo struct{}
+
+func (testMLRepo) Load(context.Context, *autosizev1.WorkloadProfile) (*mlstate.MLState, error) {
+	return mlstate.New(), nil
+}
+
+func (testMLRepo) Save(context.Context, *autosizev1.WorkloadProfile, *mlstate.MLState) error {
+	return nil
+}
 
 type fakeKubelet struct{}
 
@@ -129,10 +143,15 @@ var _ = Describe("WorkloadProfile Controller", func() {
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &WorkloadProfileReconciler{
-				Client:  k8sClient,
-				Scheme:  k8sClient.Scheme(),
-				Target:  target.NewResolver(k8sClient),
-				Kubelet: fakeKubelet{},
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Target:   target.NewResolver(k8sClient),
+				Kubelet:  fakeKubelet{},
+				MLState:  testMLRepo{},
+				Detector: changepoint.NewDetector(),
+				Clock: func() time.Time {
+					return time.Date(2026, 1, 2, 15, 0, 0, 0, time.UTC)
+				},
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{

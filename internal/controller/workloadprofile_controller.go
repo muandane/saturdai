@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -25,7 +26,9 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	autosizev1 "github.com/muandane/saturdai/api/v1"
+	"github.com/muandane/saturdai/internal/changepoint"
 	"github.com/muandane/saturdai/internal/kubelet"
+	"github.com/muandane/saturdai/internal/mlstate"
 	"github.com/muandane/saturdai/internal/target"
 )
 
@@ -35,6 +38,12 @@ type WorkloadProfileReconciler struct {
 	Scheme  *runtime.Scheme
 	Target  *target.Resolver
 	Kubelet kubelet.Interface
+	// Clock returns the current time (inject for tests; nil defaults to time.Now in reconcile).
+	Clock func() time.Time
+	// MLState persists CUSUM, feedback, and HW state (nil skips persistence; in-memory only).
+	MLState mlstate.Repository
+	// Detector notifies handlers on CUSUM shift (optional).
+	Detector *changepoint.Detector
 }
 
 // +kubebuilder:rbac:groups=autosize.saturdai.auto,resources=workloadprofiles,verbs=get;list;watch;create;update;patch;delete
@@ -44,6 +53,8 @@ type WorkloadProfileReconciler struct {
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=nodes/proxy,verbs=get
+// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 
 // Reconcile implements the autosizing observe/actuation loop.
 func (r *WorkloadProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

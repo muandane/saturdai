@@ -39,9 +39,11 @@ import (
 	admissionwh "sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	autosizev1 "github.com/muandane/saturdai/api/v1"
+	"github.com/muandane/saturdai/internal/changepoint"
 	"github.com/muandane/saturdai/internal/controller"
 	"github.com/muandane/saturdai/internal/defaults"
 	"github.com/muandane/saturdai/internal/kubelet"
+	"github.com/muandane/saturdai/internal/mlstate"
 	"github.com/muandane/saturdai/internal/target"
 	podwebhook "github.com/muandane/saturdai/internal/webhook"
 	// +kubebuilder:scaffold:imports
@@ -200,11 +202,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	recorder := mgr.GetEventRecorderFor("workloadprofile-controller")
 	if err := (&controller.WorkloadProfileReconciler{
-		Client:  mgr.GetClient(),
-		Scheme:  mgr.GetScheme(),
-		Target:  target.NewResolver(mgr.GetClient()),
-		Kubelet: kubelet.NewClient(kubeClient, 15*time.Second),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Target:   target.NewResolver(mgr.GetClient()),
+		Kubelet:  kubelet.NewClient(kubeClient, 15*time.Second),
+		Clock:    time.Now,
+		MLState:  mlstate.NewConfigMapRepository(mgr.GetClient()),
+		Detector: changepoint.NewDetector(changepoint.EventRecorderHandler{Recorder: recorder}),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "WorkloadProfile")
 		os.Exit(1)

@@ -19,6 +19,7 @@ import (
 	"github.com/muandane/saturdai/internal/aggregate"
 	"github.com/muandane/saturdai/internal/defaults"
 	"github.com/muandane/saturdai/internal/kubelet"
+	"github.com/muandane/saturdai/internal/mlstate"
 	"github.com/muandane/saturdai/internal/podsignals"
 	"github.com/muandane/saturdai/internal/recommend"
 	"github.com/muandane/saturdai/internal/safety"
@@ -34,6 +35,13 @@ func actuationEnabled() bool {
 
 func requeueAfter(profile *autosizev1.WorkloadProfile) time.Duration {
 	return time.Duration(defaults.CollectionInterval(profile.Spec)) * time.Second
+}
+
+func (r *WorkloadProfileReconciler) now() time.Time {
+	if r.Clock != nil {
+		return r.Clock()
+	}
+	return time.Now()
 }
 
 func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *autosizev1.WorkloadProfile) error {
@@ -94,45 +102,35 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 		return err
 	}
 
+	mlState := mlstate.New()
+	if r.MLState != nil {
+		loaded, loadErr := r.MLState.Load(ctx, profile)
+		if loadErr != nil {
+			return loadErr
+		}
+		mlState = loaded
+	}
+
 	byName := indexContainerStatus(profile.Status.Containers)
 	var anySpike bool
+	forecasts := make(map[string]struct{ CPU, Mem float64 }, len(tplNames))
 	for _, cname := range tplNames {
 		st := byName[cname]
-		cpuSketch, memSketch := loadSketches(&st)
 
 		cpuMilli, memBytes, throttled, usage := collectUsageForContainer(summaries, ns, pods.Items, cname)
 		if throttled > 0 && usage > 0 {
 			sig.SetThrottleRatio(cname, throttled, usage)
 		}
 
-		st.Name = cname
-		if cpuMilli > 0 {
-			st.Stats.CPU.EMAShort, st.Stats.CPU.EMALong = aggregate.UpdateEMA(st.Stats.CPU.EMAShort, st.Stats.CPU.EMALong, cpuMilli)
+		fCPU, fMem, err := r.ingestContainerMetrics(logger, profile, mlState, &st, cname, cpuMilli, memBytes)
+		if err != nil {
+			return err
 		}
-		if memBytes > 0 {
-			st.Stats.Memory.EMAShort, st.Stats.Memory.EMALong = aggregate.UpdateEMA(st.Stats.Memory.EMAShort, st.Stats.Memory.EMALong, memBytes)
-		}
-		st.Stats.Memory.SlopePositive = st.Stats.Memory.EMAShort > st.Stats.Memory.EMALong*1.01
+		forecasts[cname] = struct{ CPU, Mem float64 }{CPU: fCPU, Mem: fMem}
 
-		if err := cpuSketch.Add(cpuMilli); err != nil {
-			logger.Info("cpu sketch add", "error", err)
-		}
-		if err := memSketch.Add(memBytes); err != nil {
-			logger.Info("mem sketch add", "error", err)
-		}
-		cs, err := aggregate.SketchToBase64(cpuSketch)
-		if err != nil {
-			return err
-		}
-		ms, err := aggregate.SketchToBase64(memSketch)
-		if err != nil {
-			return err
-		}
-		st.Stats.CPU.Sketch = cs
-		st.Stats.Memory.Sketch = ms
-		now := metav1.Now()
-		st.Stats.CPU.LastUpdated = &now
-		st.Stats.Memory.LastUpdated = &now
+		observedAt := metav1.NewTime(r.now())
+		st.Stats.CPU.LastUpdated = &observedAt
+		st.Stats.Memory.LastUpdated = &observedAt
 
 		applyLastOOMKillFromSnapshot(&st, sig.LastOOMKill[cname])
 
@@ -146,28 +144,40 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 		byName[cname] = st
 	}
 
+	pruneMLState(mlState, tplNames)
+
 	profile.Status.Containers = flattenContainerStatus(byName, tplNames)
 
 	minMax := overridesMap(profile)
 
+	bias := recommend.NewLiveBias(mlState.Feedback)
+	engine := recommend.New(mode, bias)
 	var recs []autosizev1.Recommendation
 	for _, cname := range tplNames {
 		st := byName[cname]
 		cpuSketch, memSketch := loadSketches(&st)
+		quad := r.now().UTC().Hour() / 6
+		quadCPU, _ := aggregate.SketchFromBase64(quadSketchGet(st.Stats.CPU.QuadrantSketches, quad))
+		quadMem, _ := aggregate.SketchFromBase64(quadSketchGet(st.Stats.Memory.QuadrantSketches, quad))
+		fc := forecasts[cname]
 		mm := minMax[cname]
-		rec, err := recommend.Compute(recommend.Input{
-			ContainerName: cname,
-			Mode:          mode,
-			CPUSketch:     cpuSketch,
-			MemSketch:     memSketch,
-			CPUEShort:     st.Stats.CPU.EMAShort,
-			CPUELong:      st.Stats.CPU.EMALong,
-			MemShort:      st.Stats.Memory.EMAShort,
-			MemLong:       st.Stats.Memory.EMALong,
-			MinCPU:        mm.MinCPU,
-			MaxCPU:        mm.MaxCPU,
-			MinMemory:     mm.MinMemory,
-			MaxMemory:     mm.MaxMemory,
+		rec, err := engine.Compute(recommend.Input{
+			ContainerName:     cname,
+			Mode:              mode,
+			CPUSketch:         cpuSketch,
+			MemSketch:         memSketch,
+			QuadrantCPUSketch: quadCPU,
+			QuadrantMemSketch: quadMem,
+			CPUEShort:         st.Stats.CPU.EMAShort,
+			CPUELong:          st.Stats.CPU.EMALong,
+			MemShort:          st.Stats.Memory.EMAShort,
+			MemLong:           st.Stats.Memory.EMALong,
+			ForecastCPU:       fc.CPU,
+			ForecastMem:       fc.Mem,
+			MinCPU:            mm.MinCPU,
+			MaxCPU:            mm.MaxCPU,
+			MinMemory:         mm.MinMemory,
+			MaxMemory:         mm.MaxMemory,
 		})
 		if err != nil {
 			return err
@@ -183,14 +193,17 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 	}
 
 	blockDownsize := pauseRemaining > 0 || anySpike
-	safe := safety.Apply(profile, recs, curRes, sig, time.Now(), blockDownsize)
+	safe := safety.Apply(profile, recs, curRes, sig, r.now(), blockDownsize)
 	profile.Status.Recommendations = safe.Recommendations
 	profile.Status.DownsizePauseCyclesRemaining = restartPauseAfterReconcile(baselineSeen, anySpike, pauseRemaining)
-	t := metav1.Now()
-	profile.Status.LastEvaluated = &t
+	lastEval := metav1.NewTime(r.now())
+	profile.Status.LastEvaluated = &lastEval
 	setCondition(profile, autosizev1.ConditionTypeMetricsAvailable, metav1.ConditionTrue, "Collected", "metrics processed")
 
 	if err := r.persistStatus(ctx, profile); err != nil {
+		return err
+	}
+	if err := r.saveMLState(ctx, profile, mlState); err != nil {
 		return err
 	}
 
@@ -201,8 +214,11 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 	if err := actuate.Apply(ctx, r.Client, obj, safe.Recommendations, safe.SkipMemory); err != nil {
 		return err
 	}
-	profile.Status.LastApplied = &metav1.Time{Time: time.Now()}
-	return r.persistStatus(ctx, profile)
+	profile.Status.LastApplied = &metav1.Time{Time: r.now()}
+	if err := r.persistStatus(ctx, profile); err != nil {
+		return err
+	}
+	return nil
 }
 
 type minMax struct {
@@ -285,7 +301,7 @@ func collectUsageForContainer(summaries map[string]*kubelet.Summary, ns string, 
 	if memN > 0 {
 		memBytes = memSum / float64(memN)
 	}
-	return cpuMilli, memBytes, thr, use
+	return aggregate.FiniteOrZero(cpuMilli), aggregate.FiniteOrZero(memBytes), thr, use
 }
 
 func currentResourcesFromTemplate(obj runtime.Object, names []string) (map[string]corev1.ResourceRequirements, error) {
