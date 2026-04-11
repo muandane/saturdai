@@ -10,6 +10,22 @@ Kubernetes operator that implements a **deterministic, explainable** CPU/memory 
 
 The reconciler resolves `spec.targetRef` to a workload, lists pods, pulls kubelet `/stats/summary` through the API server node proxy, updates per-container aggregates and recommendations in status, and optionally patches the workload when **`AUTOSIZE_ACTUATION`** is set to `true` or `1` (default is **observe-only**). Pod **restart counts** (max per container across replicas) are stored in status; when the delta since the last reconcile exceeds a threshold after a baseline exists, the safety layer **pauses downsizing** for two cycles (`status.downsizePauseCyclesRemaining`). See [LLD-050](docs/LLD/autosize/050-pod-signals.md) / [LLD-070](docs/LLD/autosize/070-safety-layer.md).
 
+### Learned state (ConfigMap) and recommendation pipeline
+
+Heavy or evolving **learned** state (CUSUM, feedback, Holt–Winters) is stored in a **ConfigMap** per profile (`mlstate-<workloadprofile-name>` in the same namespace, owner-referenced for GC), not in the CRD status. **CRD status** still holds EMA + global DDSketches and optional **UTC quadrant sketches** (four 6-hour buckets per resource) for time-of-day-aware quantiles.
+
+| Area | Package / behavior |
+|------|---------------------|
+| Sketch + EMA update | [`internal/aggregate/updater.go`](internal/aggregate/updater.go) — single `Update` path; always records samples in the sketch, EMA only when usage > 0 |
+| Modes | [`internal/recommend`](internal/recommend) — `Engine` strategies (`cost`, `balanced`, `resilience`, `burst`), wrapped by `biasedEngine` and a `BiasProvider` |
+| Bias from accuracy | [`internal/recommend/feedback.go`](internal/recommend/feedback.go) — EWMA of actual vs **last post-safety** `status.recommendations`; applies after enough samples |
+| Changepoint (CUSUM) | [`internal/changepoint`](internal/changepoint) — shift vs pre-update `EMA_long`; on detection, global sketch for that resource is cleared to restart aggregation |
+| Holt–Winters | [`internal/aggregate/holtwinters.go`](internal/aggregate/holtwinters.go) — hourly seasonality; **forecasts** feed burst/resilience limit headroom when warm |
+| Persistence | [`internal/mlstate`](internal/mlstate) — `Repository` load/save |
+| Time | Reconciler **`Clock`** (defaults to `time.Now` in [`cmd/main.go`](cmd/main.go)) for tests and consistent timestamps |
+
+The manager **ClusterRole** includes ConfigMap verbs for these objects. See [Implementation status](docs/implementation-status.md) for a feature checklist.
+
 ## Getting Started
 
 ### Prerequisites

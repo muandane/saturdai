@@ -3,7 +3,7 @@
 **Authoritative requirements:** [spec/autosize-controller-spec.md](./spec/autosize-controller-spec.md)  
 **LLD index:** [LLD/autosize/README.md](./LLD/autosize/README.md)
 
-Last reviewed: 2026-04-11 — LLD 010/050/070 and README aligned with restart spike implementation (update when scope changes).
+Last reviewed: 2026-04-11 — includes learned-state pipeline (ConfigMap `mlstate-*`, CUSUM, feedback bias, quadrant sketches, Holt–Winters forecasts).
 
 ## Legend
 
@@ -25,7 +25,7 @@ Last reviewed: 2026-04-11 — LLD 010/050/070 and README aligned with restart sp
 | DDSketch in status (base64) | §6, 040 | Done | `internal/aggregate` |
 | Pod signals: OOM from pod status | §5, 050 | Done | Merged pod `lastState` OOM `finishedAt` (max per container) in `status.containers[].stats.lastOOMKill`; safety uses same snapshot |
 | Pod signals: restart count & delta | §5, §9, 050 | Done | Max restart per container in `status.containers[].stats.restartCount`; delta vs prior after `lastEvaluated` baseline (`internal/controller/reconcile.go`, `internal/podsignals`) |
-| Four modes + percentile tables | §8, 060 | Done | `internal/recommend/recommend.go` |
+| Four modes + percentile tables | §8, 060 | Done | Strategy `Engine` + `biasedEngine` in `internal/recommend` (`engine.go`, `strategies.go`, `biased.go`, `bias.go`); `Compute` delegates to `New(..., NoopBias{})` |
 | Prediction `EMA_long + k * (EMA_short - EMA_long)` | §6–7, 060 | Not started | Percentiles only; `k` unused |
 | Safety: max 30% decrease | §9, 070 | Done | Implemented as ≥70% of current (`internal/safety`) |
 | Safety: cooldown vs `lastApplied` | §9, 070 | Done | |
@@ -37,6 +37,20 @@ Last reviewed: 2026-04-11 — LLD 010/050/070 and README aligned with restart sp
 | Reconcile loop, status update | §10, 080 | Done | `internal/controller/reconcile.go` |
 | Actuation: PATCH workload template | §11, 090 | Done | `internal/actuate`; gated by `AUTOSIZE_ACTUATION=true` |
 | RBAC / packaging baseline | 100 | Done | `config/rbac`, samples |
+
+## Learned state & heuristics (post-MVP)
+
+| Item | Location | Status | Notes |
+|------|----------|--------|--------|
+| Template-method sketch + EMA update | `internal/aggregate/updater.go` | Done | Shared CPU/mem path; corrupt status sketch falls back to empty sketch |
+| Injectable `Clock` on reconciler | `internal/controller/workloadprofile_controller.go`, `reconcile.go` | Done | `cmd/main.go` sets `time.Now`; tests can fix time |
+| ML state ConfigMap repository | `internal/mlstate` | Done | Name `mlstate-<profile.Name>`; JSON key `state`; owner ref to `WorkloadProfile`; corrupt JSON → fresh state |
+| RBAC: ConfigMaps for ML state | `config/rbac/role.yaml` | Done | Kubebuilder marker on controller |
+| CUSUM changepoint on CPU/memory | `internal/changepoint`, `reconcile_ingest.go` | Done | Compared to **pre-sample** `EMA_long`; threshold defaults in `cusum.go`; shift clears global sketch string |
+| Feedback EWMA + `LiveBias` | `internal/recommend/feedback.go` | Done | `RecordUsage` vs prior **`status.recommendations`** (post-safety); min samples before bias |
+| UTC quadrant DDSketches (6h buckets) | `api/v1` `QuadrantSketches`, `reconcile_ingest.go` | Done | Slice max 4; `recommend.Input` prefers non-empty quadrant sketch for quantiles |
+| Holt–Winters + forecasts | `internal/aggregate/holtwinters.go`, `mlstate` HW map | Done | `Input.ForecastCPU` / `ForecastMem`; burst/resilience use when > 0 |
+| `ShiftDetector` / handlers | `internal/changepoint/handler.go` | Done | Optional; reconciler notifies on shift (extensible) |
 
 ## Phase 2 — Admission
 
@@ -51,7 +65,7 @@ Last reviewed: 2026-04-11 — LLD 010/050/070 and README aligned with restart sp
 |------|-----|--------|
 | DRA integration | 200 | N/A — stub |
 | Node-aware sketches / bin-packing | 300 | N/A — stub |
-| Time-of-day / hour buckets | 400 | N/A — stub |
+| Time-of-day / hour buckets | 400 | Partial | Quadrant sketches (6h UTC) + HW hourly season in code; LLD 400 still stub-level |
 
 ## Explicit spec exclusions (unchanged)
 
