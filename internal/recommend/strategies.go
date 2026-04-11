@@ -14,7 +14,11 @@ func (costStrategy) Compute(in Input) (autosizev1.Recommendation, error) {
 	cpuLimMilli, _ := qMilli(effectiveCPUSketch(in), 0.90)
 	memReqBytes, _ := qBytes(effectiveMemSketch(in), 0.50)
 	memLimBytes, _ := qBytes(effectiveMemSketch(in), 0.90)
-	rationale := fmt.Sprintf("cost: P50/P90 cpu & mem, mode=%s", "cost")
+	cpuLimMilli, memLimBytes, k, cpuPred, memPred := mergeLimitsWithEMAPrediction(cpuLimMilli, memLimBytes, in, "cost")
+	rationale := fmt.Sprintf(
+		"cost: P50/P90 cpu & mem; limits=max(quantile,EMA_long+k*(short-long)) k=%.1f cpu_pred=%.0fm mem_pred=%.0f; mode=cost",
+		k, cpuPred, memPred,
+	)
 	return finalizeRec(in, cpuReqMilli, cpuLimMilli, memReqBytes, memLimBytes, rationale), nil
 }
 
@@ -28,11 +32,18 @@ func (b balancedStrategy) Compute(in Input) (autosizev1.Recommendation, error) {
 	cpuLimMilli, _ := qMilli(effectiveCPUSketch(in), 0.95)
 	memReqBytes, _ := qBytes(effectiveMemSketch(in), 0.70)
 	memLimBytes, _ := qBytes(effectiveMemSketch(in), 0.95)
+	cpuLimMilli, memLimBytes, k, cpuPred, memPred := mergeLimitsWithEMAPrediction(cpuLimMilli, memLimBytes, in, "balanced")
 	var rationale string
 	if b.fallback {
-		rationale = fmt.Sprintf("balanced(default): P70/P95, mode=%s", mode)
+		rationale = fmt.Sprintf(
+			"balanced(default): P70/P95; limits=max(quantile,EMA_long+k*(short-long)) k=%.1f cpu_pred=%.0fm mem_pred=%.0f; mode=%s",
+			k, cpuPred, memPred, mode,
+		)
 	} else {
-		rationale = fmt.Sprintf("balanced: P70/P95 cpu & mem, mode=%s", mode)
+		rationale = fmt.Sprintf(
+			"balanced: P70/P95 cpu & mem; limits=max(quantile,EMA_long+k*(short-long)) k=%.1f cpu_pred=%.0fm mem_pred=%.0f; mode=%s",
+			k, cpuPred, memPred, mode,
+		)
 	}
 	return finalizeRec(in, cpuReqMilli, cpuLimMilli, memReqBytes, memLimBytes, rationale), nil
 }
@@ -56,7 +67,11 @@ func (resilienceStrategy) Compute(in Input) (autosizev1.Recommendation, error) {
 	if in.ForecastMem > 0 {
 		memLimBytes = math.Max(memLimBytes, in.ForecastMem)
 	}
-	rationale := fmt.Sprintf("resilience: P90 req, P99*1.1/1.2 limits, mode=%s", "resilience")
+	cpuLimMilli, memLimBytes, k, cpuPred, memPred := mergeLimitsWithEMAPrediction(cpuLimMilli, memLimBytes, in, "resilience")
+	rationale := fmt.Sprintf(
+		"resilience: P90 req, P99*1.1/1.2 limits; limits=max(quantile,EMA_long+k*(short-long)) k=%.1f cpu_pred=%.0fm mem_pred=%.0f; mode=resilience",
+		k, cpuPred, memPred,
+	)
 	return finalizeRec(in, cpuReqMilli, cpuLimMilli, memReqBytes, memLimBytes, rationale), nil
 }
 
@@ -78,7 +93,11 @@ func (burstStrategy) Compute(in Input) (autosizev1.Recommendation, error) {
 	memReqBytes := p40m
 	peakMem := math.Max(p99m, memShortForBurst(in))
 	memLimBytes := peakMem
-	rationale := fmt.Sprintf("burst: P40 req, peak=max(P99,EMA_short), mode=%s", "burst")
+	cpuLimMilli, memLimBytes, k, cpuPred, memPred := mergeLimitsWithEMAPrediction(cpuLimMilli, memLimBytes, in, "burst")
+	rationale := fmt.Sprintf(
+		"burst: P40 req, peak=max(P99,EMA_short/forecast); limits=max(peak,EMA_long+k*(short-long)) k=%.1f cpu_pred=%.0fm mem_pred=%.0f; mode=burst",
+		k, cpuPred, memPred,
+	)
 	return finalizeRec(in, cpuReqMilli, cpuLimMilli, memReqBytes, memLimBytes, rationale), nil
 }
 
