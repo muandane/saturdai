@@ -71,18 +71,18 @@ func Apply(
 		}
 		if cur.Requests != nil {
 			if c := cur.Requests.Cpu(); c != nil {
-				out[i].CPURequest = clampDecrease(out[i].CPURequest, *c)
+				out[i].CPURequest = clampDecreaseCPU(out[i].CPURequest, *c)
 			}
 			if m := cur.Requests.Memory(); m != nil && !skipMem[name] {
-				out[i].MemoryRequest = clampDecrease(out[i].MemoryRequest, *m)
+				out[i].MemoryRequest = clampDecreaseMemory(out[i].MemoryRequest, *m)
 			}
 		}
 		if cur.Limits != nil {
 			if c := cur.Limits.Cpu(); c != nil {
-				out[i].CPULimit = clampDecrease(out[i].CPULimit, *c)
+				out[i].CPULimit = clampDecreaseCPU(out[i].CPULimit, *c)
 			}
 			if m := cur.Limits.Memory(); m != nil && !skipMem[name] {
-				out[i].MemoryLimit = clampDecrease(out[i].MemoryLimit, *m)
+				out[i].MemoryLimit = clampDecreaseMemory(out[i].MemoryLimit, *m)
 			}
 		}
 	}
@@ -111,7 +111,8 @@ func Apply(
 	}
 }
 
-func clampDecrease(newQ, curQ resource.Quantity) resource.Quantity {
+// clampDecreaseCPU applies a 70% floor of current when the new recommendation is lower (millicores).
+func clampDecreaseCPU(newQ, curQ resource.Quantity) resource.Quantity {
 	if newQ.Cmp(curQ) >= 0 {
 		return newQ
 	}
@@ -130,6 +131,22 @@ func clampDecrease(newQ, curQ resource.Quantity) resource.Quantity {
 	minV := int64(math.Ceil(float64(cv) * 0.7))
 	if nv < minV {
 		return *resource.NewQuantity(minV, newQ.Format)
+	}
+	return newQ
+}
+
+// clampDecreaseMemory applies a 70% floor of current when the new recommendation is lower (bytes; BinarySI).
+func clampDecreaseMemory(newQ, curQ resource.Quantity) resource.Quantity {
+	if newQ.Cmp(curQ) >= 0 {
+		return newQ
+	}
+	if curQ.IsZero() {
+		return newQ
+	}
+	nv, cv := newQ.Value(), curQ.Value()
+	minV := int64(math.Ceil(float64(cv) * 0.7))
+	if nv < minV {
+		return *resource.NewQuantity(minV, curQ.Format)
 	}
 	return newQ
 }
