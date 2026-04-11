@@ -2,7 +2,9 @@
 
 ## 1. Objective
 
-A Kubernetes controller that dynamically adjusts CPU and memory requests/limits for workloads using deterministic, fully explainable algorithms. No Prometheus. No ML. No external dependencies.
+A Kubernetes controller that dynamically adjusts CPU and memory requests/limits for workloads using deterministic, fully explainable algorithms. **No Prometheus dependency, no external SaaS, and no opaque ML services.** The shipped controller may use **in-cluster, bounded online methods** (CUSUM changepoint detection, EWMA feedback bias, Holt–Winters hourly forecasts, UTC quadrant DDSketches) with state persisted as structured JSON—see **§2 Extensions** and the learned-state summary in [`README.md`](../../README.md).
+
+**No raw sample retention** and no reliance on external observability backends remain core properties.
 
 **Comparable to CAST AI behavior — without the black box or SaaS dependency.**
 
@@ -10,7 +12,7 @@ Key differences from existing tools:
 
 - **Goldilocks**: recommend-only, VPA-dependent, no actuation
 - **CAST AI**: closed-source, ML-based, cloud-dependent
-- **This**: self-contained actuation, no VPA, no Prometheus, deterministic + auditable
+- **This**: self-contained actuation, no VPA, no Prometheus, deterministic + auditable (including post-MVP in-cluster extensions below)
 
 ---
 
@@ -27,19 +29,21 @@ Key differences from existing tools:
 
 - Horizontal Pod Autoscaling
 - Prometheus / external observability
-- ML or probabilistic models (see **Extensions** below for in-cluster learned state)
+- **External** ML services, hosted model APIs, or **opaque** probabilistic black boxes (see **Extensions** for allowed in-cluster deterministic methods)
 - Direct Pod mutation
 - DRA (Phase 2+)
 
 ### Extensions (post-MVP, in-repo)
 
-The MVP excludes **external** ML and Prometheus. The implementation may add **in-cluster, deterministic** extensions that stay explainable and auditable:
+The product excludes **external** ML and Prometheus. The implementation adds **in-cluster, deterministic** extensions that stay bounded and auditable:
 
-- **`spec.collectionIntervalSeconds`** — reconcile/sample cadence (default 30s, bounded range).
-- **Per-container UTC quadrant sketches** — up to four base64 DDSketches per CPU/memory for 6-hour UTC buckets (00–06, 06–12, 12–18, 18–24), used for richer quantiles without raw samples.
-- **Learned state** (`ConfigMap` `mlstate-*`, owner-referenced) — CUSUM-style changepoint tracking, feedback EWMA bias, Holt–Winters seasonal components for forecasts — all **online**, no external store.
+- **`spec.collectionIntervalSeconds`** — reconcile requeue cadence after successful cycles (default **30s**, range **10–300**); kubelet-total-failure backoff uses **`max(10s, collectionInterval)`** (see §5).
+- **Per-container UTC quadrant sketches** — up to four base64 DDSketches per CPU/memory for 6-hour UTC buckets (00–06, 06–12, 12–18, 18–24); recommendation prefers quadrant quantiles when the active bucket sketch has enough samples (see §6).
+- **Learned state** (`ConfigMap` **`mlstate-<WorkloadProfile.metadata.name>`**, same namespace, owner-referenced for GC) — JSON holding CUSUM accumulators, per-container feedback EWMA ratios, and Holt–Winters state — all **online**, **no external datastore**.
 
-These are **not** “black box” SaaS ML; they remain bounded state and appear in `status` / rationale. See [`docs/implementation-status.md`](../implementation-status.md).
+**What lives where:** EMA, global DDSketches, quadrant sketches, slope fields, OOM/restart signals, and recommendations live in **`WorkloadProfile.status`**. CUSUM, feedback, and HW internals live **only** in the `mlstate-*` ConfigMap (inspectable there; optional **Kubernetes Events** may record changepoint shifts). Actuation decisions remain traceable via **`status.recommendations[].rationale`** and **conditions**.
+
+Further detail: [`docs/implementation-status.md`](../implementation-status.md), [`docs/LLD/autosize/400-time-based-patterns.md`](../LLD/autosize/400-time-based-patterns.md), [`docs/LLD/autosize/070-safety-layer.md`](../LLD/autosize/070-safety-layer.md).
 
 ---
 
@@ -62,15 +66,26 @@ These are **not** “black box” SaaS ML; they remain bounded state and appear 
 │         │                                   │
 │  ┌──────▼──────────────────────────────┐    │
 │  │         Stats Engine                 │    │
-│  │  EMA (short + long)                  │    │
-│  │  DDSketch (percentiles)              │    │
+│  │  EMA, DDSketch, UTC quadrant buckets │    │
+│  │  + load/save mlstate ConfigMap       │    │
 │  └──────┬──────────────────────────────┘    │
 │         │                                   │
 │  ┌──────▼──────────────────────────────┐    │
-│  │     WorkloadProfile CRD (etcd)       │    │
-│  │  Aggregates only — no raw samples    │    │
+│  │  WorkloadProfile status + mlstate CM │    │
+│  │  Bounded aggregates — no raw samples │    │
 │  └─────────────────────────────────────┘    │
 └─────────────────────────────────────────────┘
+```
+
+```mermaid
+flowchart LR
+  Kubelet[kubelet_summary] --> Ingest[ingest]
+  Ingest --> CRStatus[WorkloadProfile_status]
+  Ingest --> MLCM[ConfigMap_mlstate]
+  CRStatus --> Rec[recommend]
+  MLCM --> Rec
+  Rec --> Safety[safety]
+  Safety --> Patch[patch_target]
 ```
 
 ---
@@ -97,46 +112,66 @@ spec:
       minMemory: "64Mi"
       maxMemory: "8Gi"
   cooldownMinutes: 15      # default: 15
-  collectionIntervalSeconds: 30   # optional; 10–300; reconcile requeue cadence
+  collectionIntervalSeconds: 30   # optional; 10–300; successful reconcile RequeueAfter
 status:
-  conditions: []           # see Status conditions below
+  conditions:
+    - type: TargetResolved
+      status: "True"
+      reason: Resolved
+      message: target found
+      lastTransitionTime: "2026-04-11T10:00:00Z"
+      observedGeneration: 3
+    - type: MetricsAvailable
+      status: "True"
+      reason: Collected
+      message: metrics processed
+      lastTransitionTime: "2026-04-11T10:00:05Z"
+      observedGeneration: 3
+    - type: ProfileReady
+      status: "True"
+      reason: Ready
+      message: target resolved and metrics available
+      lastTransitionTime: "2026-04-11T10:00:05Z"
+      observedGeneration: 3
   containers:
     - name: app
       stats:
         cpu:
-          emaShort: 0.0
-          emaLong: 0.0
-          sketch: ""       # base64 DDSketch
-          quadrantSketches: []   # optional; up to 4 base64 sketches (UTC 6h buckets)
-          lastUpdated: ""
+          emaShort: 120.5
+          emaLong: 95.0
+          sketch: ""       # base64 DDSketch protobuf when populated
+          quadrantSketches: []   # omit or []; up to 4 entries, indices 0–3 = UTC 00–06 … 18–24
+          lastUpdated: "2026-04-11T10:00:05Z"
         memory:
-          emaShort: 0.0
-          emaLong: 0.0
+          emaShort: 268435456.0
+          emaLong: 251658240.0
           sketch: ""
           quadrantSketches: []
-          lastUpdated: ""
-          slopeStreak: 0         # consecutive reconciles with mem EMAShort up; persisted (restart-safe)
-          slopePositive: false   # true when slopeStreak >= N (default 5); blocks memory downsize
+          lastUpdated: "2026-04-11T10:00:05Z"
+          slopeStreak: 0
+          slopePositive: false
         lastOOMKill: null
         restartCount: 0
   metricsRecommendations:
     - containerName: app
-      cpuRequest: "180m"
-      cpuLimit: "750m"
-      memoryRequest: "240Mi"
-      memoryLimit: "480Mi"
-      rationale: "balanced: P70/P95 cpu & mem, mode=balanced"
+      cpuRequest: "200m"
+      cpuLimit: "800m"
+      memoryRequest: "300Mi"
+      memoryLimit: "600Mi"
+      rationale: "balanced: engine output before safety (P70/P95, mode=balanced)"
   recommendations:
     - containerName: app
       cpuRequest: "200m"
       cpuLimit: "800m"
       memoryRequest: "256Mi"
       memoryLimit: "512Mi"
-      rationale: "balanced: P70/P95, no OOM events; safety: decrease_step …"
-  lastApplied: ""
-  lastEvaluated: ""
-  downsizePauseCyclesRemaining: 0   # restart-spike pause; decremented each reconcile
+      rationale: "balanced: …; safety: decrease_step mem_request 300Mi->256Mi (floor 70%); trend_guard: memory frozen on workload"
+  lastApplied: "2026-04-11T09:45:00Z"
+  lastEvaluated: "2026-04-11T10:00:05Z"
+  downsizePauseCyclesRemaining: 1   # example: restart-spike pause; decremented each reconcile when > 0
 ```
+
+Learned JSON (**CUSUM**, **feedback**, **Holt–Winters**) is **not** shown above; it lives in ConfigMap `mlstate-my-app` in the same namespace (key `state`, see §6).
 
 ### Status conditions
 
@@ -148,7 +183,7 @@ status:
 | `MetricsAvailable` | Kubelet stats were collected for this evaluation cycle when required (pods scheduled to nodes), and aggregates/recommendations were updated |
 | `ProfileReady` | `TargetResolved` **and** `MetricsAvailable` are both True |
 
-If kubelet summary fetch fails for **all** nodes that host scheduled pods, set `MetricsAvailable=False` (reason such as `KubeletUnavailable`), **do not** advance `lastEvaluated` or emit a successful “metrics processed” outcome for that cycle, requeue after at least 10s and the configured collection interval.
+If kubelet summary fetch fails for **all** nodes that host scheduled pods, set `MetricsAvailable=False` (reason such as `KubeletUnavailable`), **do not** advance `lastEvaluated` or emit a successful “metrics processed” outcome for that cycle; return **`RequeueAfter: max(10s, spec.collectionIntervalSeconds)`** with **nil error** so the requeue applies (controller-runtime ignores `RequeueAfter` when `err != nil`).
 
 ---
 
@@ -176,41 +211,36 @@ Requires `nodes/stats` RBAC permission.
 | OOMKilled | Pod `containerStatuses[].lastState.terminated.reason` | Watch for `"OOMKilled"` |
 | Restart count | Pod `containerStatuses[].restartCount` | Delta between reconciles |
 
-### Collection Interval
+### Collection interval (`spec.collectionIntervalSeconds`)
 
-- Default: every **30s** (`spec.collectionIntervalSeconds`, range 10–300)
-- Drives controller **requeue** cadence after a successful reconcile; kubelet failure requeue uses at least **10s** and the same interval
+- **Validation:** 10–300 seconds; **default 30** if omitted (see generated CRD).
+- **Successful reconcile:** `RequeueAfter` equals the configured interval (`defaults.CollectionInterval` in code).
+- **Kubelet unavailable (all nodes with scheduled pods fail):** `RequeueAfter` is **`max(10s, collectionInterval)`** — never below 10s even if the spec interval is shorter.
 
 ---
 
-## 6. State Storage: CRD-Only, No Raw Samples
+## 6. State Storage: Bounded Aggregates, No Raw Samples
 
 **Problem**: 24h of 30s samples = 2880 samples/container. Storing raw samples hits etcd's ~1MB object limit.
 
-**Solution**: Online algorithms — store only fixed-size aggregates in CRD status.
+**Solution**: Online algorithms — fixed-size **CRD `status`** fields for observables operators care about, plus optional **in-namespace ConfigMap** JSON for additional learned parameters. **No external observability database.**
 
-### EMA State (trivial, ~16 bytes per metric)
+Canonical field names and validation match [`api/v1/workloadprofile_types.go`](../../api/v1/workloadprofile_types.go) and the generated CRD under `config/crd/bases/`.
 
-```go
-type EMAState struct {
-    Short float64 `json:"short"` // α = 0.2 — reacts fast
-    Long  float64 `json:"long"`  // α = 0.05 — smooths noise
-}
-```
+### EMA (per metric)
 
-Update formula:
+Conceptually two exponentials on each sample (short vs long α in the aggregate package). Persisted as `emaShort` / `emaLong` on CPU and memory.
 
 ```
 EMA_t = α * sample_t + (1 - α) * EMA_(t-1)
 ```
 
-### Percentile State: DDSketch
+### Percentile state: DDSketch
 
 Library: `github.com/DataDog/sketches-go/ddsketch`
 
 - Bounded memory (~1KB per metric at 1% relative accuracy)
-- Any percentile on demand (P40, P50, P70, P90, P95, P99)
-- Serializes to protobuf → base64 in CRD status
+- Serializes to protobuf → **base64** in `status.containers[].stats.*.sketch`
 - Mergeable (useful later for node-level aggregation)
 
 ```go
@@ -218,37 +248,75 @@ import "github.com/DataDog/sketches-go/ddsketch"
 
 sketch, _ := ddsketch.NewDefaultDDSketch(0.01) // 1% relative accuracy
 sketch.Add(sampleValue)
-
-// Serialize for CRD storage
 bytes, _ := sketch.ToProto().Marshal()
 encoded := base64.StdEncoding.EncodeToString(bytes)
 ```
 
-### Full CRD State Per Container
+### CRD `status` shapes (per container)
+
+Go types mirror JSON; **slope fields apply to memory only.**
 
 ```go
-type ContainerStats struct {
-    CPU    MetricAggregate `json:"cpu"`
-    Memory MetricAggregate `json:"memory"`
+type CPUStats struct {
+    EMAShort         float64      `json:"emaShort"`
+    EMALong          float64      `json:"emaLong"`
+    Sketch           string       `json:"sketch"`
+    QuadrantSketches []string     `json:"quadrantSketches,omitempty"` // max 4
+    LastUpdated      *metav1.Time `json:"lastUpdated,omitempty"`
+}
+
+type MemoryStats struct {
+    EMAShort         float64      `json:"emaShort"`
+    EMALong          float64      `json:"emaLong"`
+    Sketch           string       `json:"sketch"`
+    QuadrantSketches []string     `json:"quadrantSketches,omitempty"`
+    LastUpdated      *metav1.Time `json:"lastUpdated,omitempty"`
+    SlopeStreak      int32        `json:"slopeStreak,omitempty"`
+    SlopePositive    bool         `json:"slopePositive"`
+}
+
+type ContainerResourceStats struct {
+    CPU          CPUStats     `json:"cpu"`
+    Memory       MemoryStats  `json:"memory"`
     LastOOMKill  *metav1.Time `json:"lastOOMKill,omitempty"`
     RestartCount int32        `json:"restartCount"`
 }
-
-type MetricAggregate struct {
-    EMAShort    float64      `json:"emaShort"`
-    EMALong     float64      `json:"emaLong"`
-    Sketch      string       `json:"sketch"` // base64 DDSketch proto
-    SlopeStreak int32        `json:"slopeStreak,omitempty"` // memory only; consecutive up-cycles
-    SlopePos    bool         `json:"slopePositive,omitempty"` // memory only
-    LastUpdated *metav1.Time `json:"lastUpdated,omitempty"`
-}
 ```
 
-**Estimated CRD size**: 10 containers × 2 metrics × ~1KB = ~20KB. Well within etcd limits.
+**Estimated CRD size**: order of tens of KB for many containers. Well within etcd limits.
+
+### UTC quadrant sketches (CRD `status`)
+
+- Up to **four** base64 DDSketches per **CPU** and per **memory**: index **0 → 00:00–06:00 UTC**, **1 → 06–12**, **2 → 12–18**, **3 → 18–24**.
+- **Active bucket** each reconcile: `UTC_hour / 6` (integer division). Samples append to that bucket’s sketch.
+- **Recommendation:** if the active quadrant sketch exists and `GetCount() >= 30` (`minQuadrantSketchCount` in `internal/recommend`), quantiles for that resource are taken from the **quadrant** sketch; otherwise the **global** sketch is used.
+- **CUSUM shift** on a resource: global sketch for that resource is cleared and quadrant sketches for that container are reset so aggregation restarts clean (see `internal/controller/reconcile_ingest.go`, `reconcile_ml_helpers.go`).
+
+### ConfigMap `mlstate-<profile.name>` (not CR `status`)
+
+- **Namespace:** same as the `WorkloadProfile`. **Owner reference** to the profile for garbage collection.
+- **Data key:** `state` — JSON object with top-level maps **`cusum`**, **`feedback`**, **`hw`** (see `internal/mlstate/types.go`).
+- **`cusum`:** per container name → per-resource CUSUM accumulators (`sPos`, `sNeg`) for CPU and memory.
+- **`feedback`:** per container → EWMA of **observed usage / prior post-safety recommendation** (CPU millicores and memory bytes); ratios are **clamped** when persisted so corrupt values cannot break marshaling (`internal/recommend/feedback.go`).
+- **`hw`:** per container → Holt–Winters `HWState` per resource (`level`, `trend`, 24 seasonal indices, smoothing params, sample count) — `internal/aggregate/holtwinters.go`.
+- **Corrupt or missing JSON on load:** reconciler starts from **fresh** in-memory state (see `docs/implementation-status.md`).
+
+### Changepoint (CUSUM)
+
+- Each ingest compares the **new sample** to **pre-update `emaLong`** for that resource (`changepoint.State.Update`).
+- Default tunings (implementation): **CPU** allowance/threshold **K=25, H=125** (millicore-scale); **memory** byte-scale defaults in `internal/changepoint/cusum.go` (`DefaultMemConfig`).
+- On detection: accumulators **reset**; optional **Event** when a recorder is wired (`cmd/main.go`); **global sketch cleared** and **quadrants cleared** for the affected resource path.
+
+### Holt–Winters vs roadmap Phase 5
+
+- **Shipped:** hourly triple exponential smoothing produces **forecasts** (`ForecastCPU` / `ForecastMem` in `recommend.Input`) used for headroom in **burst** / **resilience** modes when the forecast is **> 0** and warm.
+- **Not shipped (Phase 5):** 24 separate “sketch slots” per container with **automatic profile switching** (cost vs burst by clock). Quadrant sketches are **four** UTC buckets for quantiles, not that product.
 
 ---
 
 ## 7. Statistical Model
+
+Percentile targets (§8) read from the **global** or **quadrant** DDSketch per §6. **Holt–Winters forecasts** (when warm) and **feedback bias** adjust recommendation inputs in code paths documented in `internal/recommend`.
 
 ### Prediction
 
@@ -268,7 +336,7 @@ Track whether memory EMA short is monotonically increasing across reconcile cycl
 
 ## 8. Profiles
 
-All values derived from DDSketch percentile queries.
+Primary outputs are **DDSketch percentile queries** on the sketch selected by §6 (global vs quadrant). Forecasts and bias may modify limits/requests in **burst** / **resilience** per implementation.
 
 ### cost
 
@@ -358,44 +426,38 @@ Every recommendation in `status.recommendations[].rationale` must be a human-rea
 
 ## 10. Reconciliation Loop
 
-Pseudocode; production code lives under `internal/controller/` and imports `github.com/muandane/saturdai/api/v1` as `autosizev1`.
+Pseudocode aligned with `internal/controller/workloadprofile_controller.go` + `reconcile.go`. **Important:** when `err != nil`, controller-runtime **ignores** `RequeueAfter`; kubelet-total-failure therefore returns **`nil` error** with a custom requeue duration.
 
 ```go
 func (r *WorkloadProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
     profile := &autosizev1.WorkloadProfile{}
-    if err := r.Get(ctx, req.NamespacedName, profile); err != nil {
+    if err := r.Client.Get(ctx, req.NamespacedName, profile); err != nil {
         return ctrl.Result{}, client.IgnoreNotFound(err)
     }
 
-    target, err := r.resolveTarget(ctx, profile)
+    customRequeue, err := r.reconcile(ctx, profile) // inner loop
     if err != nil {
-        return ctrl.Result{}, err
+        return ctrl.Result{}, err // no RequeueAfter
     }
-
-    metrics, err := r.collectKubeletMetrics(ctx, target)
-    if err != nil {
-        return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+    if customRequeue != nil {
+        return ctrl.Result{RequeueAfter: *customRequeue}, nil // e.g. kubelet backoff max(10s, interval)
     }
-
-    r.updateAggregates(profile, metrics)    // EMA + DDSketch update
-    recs := r.computeRecommendations(profile) // percentile queries + profile
-
-    if r.safeToApply(profile, recs) {
-        if err := r.patchTarget(ctx, target, recs); err != nil {
-            return ctrl.Result{}, err
-        }
-        profile.Status.LastApplied = &metav1.Time{Time: time.Now()}
-    }
-
-    profile.Status.Recommendations = recs
-    profile.Status.LastEvaluated = &metav1.Time{Time: time.Now()}
-
-    if err := r.Status().Update(ctx, profile); err != nil {
-        return ctrl.Result{}, err
-    }
-
-    return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+    return ctrl.Result{RequeueAfter: requeueAfter(profile)}, nil // spec collection interval
 }
+
+// reconcile (sketch):
+//  - resolve target; set TargetResolved; persist on not-found / error paths as implemented
+//  - list pods, fetch kubelet summaries per node
+//  - if pods scheduled but every fetch failed: MetricsAvailable=False, persist status,
+//    return &metricsRequeueAfter(profile), nil
+//  - mlState := New(); if MLState repo != nil { Load(profile) }
+//  - for each template container: ingestContainerMetrics (EMA, sketches, quadrants, CUSUM, HW, forecasts)
+//  - pruneMLState to active container names
+//  - compute engine recommendations → status.metricsRecommendations
+//  - safety.Apply → status.recommendations, LastEvaluated, MetricsAvailable=True, ProfileReady
+//  - persist status; if MLState repo != nil { Save(profile, mlState) }
+//  - optional actuation (env-gated): patch target, LastApplied, persist again
+//  - return nil, nil to use default RequeueAfter(interval)
 ```
 
 ---
@@ -433,7 +495,7 @@ func (r *WorkloadProfileReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 | Noisy workloads | Use `resilience` profile (P95+) |
 | CronJobs | Use `burst` profile; detect idle periods via near-zero EMA |
 | Memory leak | `slopePositive` detection blocks downsizing |
-| Controller restart | Full state in CRD status — no in-memory loss |
+| Controller restart | **CR `status`** retains EMA, sketches, quadrants, slope, recommendations. **CUSUM, feedback, HW** reload from ConfigMap `mlstate-*` (or start fresh if missing/corrupt) |
 | No kubelet access | If every kubelet fetch fails for nodes with scheduled pods: `MetricsAvailable=False`, `ProfileReady=False`, persist status, **no** `lastEvaluated` update, requeue after `max(10s, collectionInterval)` with nil error so `RequeueAfter` applies |
 | Partial kubelet (some nodes OK) | Use stats from successful nodes; complete pipeline when possible |
 
@@ -459,10 +521,15 @@ rules:
 - apiGroups: ["apps"]
   resources: ["deployments", "statefulsets"]
   verbs: ["get", "list", "watch", "patch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 - apiGroups: ["autosize.saturdai.auto"]
   resources: ["workloadprofiles", "workloadprofiles/status"]
   verbs: ["get", "list", "watch", "create", "update", "patch"]
 ```
+
+*(Events `create`/`patch` may be required when recording changepoint shifts; see generated [`config/rbac/role.yaml`](../../config/rbac/role.yaml).)*
 
 ---
 
@@ -472,10 +539,10 @@ rules:
 |---|---|
 | `sigs.k8s.io/controller-runtime` | Controller scaffolding (via Kubebuilder) |
 | `github.com/DataDog/sketches-go/ddsketch` | Online percentile computation |
-| `k8s.io/client-go` | Kubelet stats API access |
+| `k8s.io/client-go` | Kubernetes API (including node proxy → kubelet summary) |
 | `google.golang.org/protobuf` | DDSketch serialization |
 
-No Prometheus. No VPA. No external store.
+No Prometheus. No VPA. **No external observability database** — optional **in-cluster ConfigMap** (`mlstate-*`) holds bounded learned JSON.
 
 ---
 
@@ -512,6 +579,8 @@ No Prometheus. No VPA. No external store.
 - Hour-of-day bucketing (24 sketch slots per container)
 - Automatic burst/off-peak profile switching
 
+**Shipped today:** four **UTC quadrant** sketches per resource and **Holt–Winters** hourly forecasts (§6) are **not** the Phase 5 auto–profile-switching feature; they support quantiles and headroom only.
+
 **Low-level designs:** Per-subsystem engineering contracts (traceability, APIs, test plans) live under [`docs/LLD/autosize/`](../LLD/autosize/README.md), indexed by phase and dependency order.
 
 ---
@@ -519,8 +588,19 @@ No Prometheus. No VPA. No external store.
 ## 16. Constraints (Non-Negotiable)
 
 - No Prometheus dependency
-- No **external** ML services or opaque probabilistic models; **in-cluster** deterministic extensions (§2 Extensions) are allowed and must remain explainable
-- All decisions deterministic and explainable via `status.recommendations[].rationale`
+- No **external** ML services, hosted inference, or **opaque** probabilistic black boxes; **in-cluster** deterministic online extensions (§2 Extensions, §6) are allowed and must remain **bounded and inspectable** (CR status + `mlstate` JSON + optional Events)
+- **Actuation-facing** outputs: every entry in `status.recommendations[]` carries a human-readable **`rationale`**; **conditions** summarize readiness. Learned internals need not be duplicated in rationale but must not replace traceability of **what** was applied or **why** safety fired
+- Decisions remain **reproducible** given the same persisted state and inputs (no network calls to third-party model APIs)
 - Must not destabilize workloads (safety mechanisms always active)
-- No raw sample storage — online algorithms only
+- No raw sample storage — online algorithms and fixed-size sketches only
 - No direct Pod mutation
+
+### Traceability checklist (doc ↔ code)
+
+| Spec topic | Primary implementation references |
+|------------|-----------------------------------|
+| §2 Extensions, §6 learned pipeline | `internal/mlstate`, `internal/changepoint`, `internal/aggregate/holtwinters.go`, `internal/recommend/feedback.go`, `internal/controller/reconcile_ingest.go` |
+| Collection interval / requeue | `internal/defaults/defaults.go`, `internal/controller/reconcile.go` (`requeueAfter`, `metricsRequeueAfter`) |
+| Quadrant selection / min count | `internal/controller/reconcile.go`, `internal/recommend/recommend.go` |
+| Status API | `api/v1/workloadprofile_types.go`, generated CRD in `config/crd/bases/` |
+| Shipped feature inventory | [`docs/implementation-status.md`](../implementation-status.md) |
