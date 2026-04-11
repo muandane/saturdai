@@ -212,7 +212,7 @@ func (r *WorkloadProfileReconciler) runObserveAndActuate(
 	for _, cname := range tplNames {
 		st := byName[cname]
 		cpuSketch, memSketch := loadSketches(&st)
-		quad := r.now().UTC().Hour() / 6
+		quad := utcQuadrantIndex(r.now())
 		quadCPU, _ := aggregate.SketchFromBase64(quadSketchGet(st.Stats.CPU.QuadrantSketches, quad))
 		quadMem, _ := aggregate.SketchFromBase64(quadSketchGet(st.Stats.Memory.QuadrantSketches, quad))
 		fc := forecasts[cname]

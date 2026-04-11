@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	autosizev1 "github.com/muandane/saturdai/api/v1"
 	"github.com/muandane/saturdai/internal/aggregate"
@@ -54,6 +55,11 @@ func ensureContainerHW(ml *mlstate.MLState, name string) *mlstate.ContainerHW {
 		ml.HW[name].Memory = &m
 	}
 	return ml.HW[name]
+}
+
+// utcQuadrantIndex returns the active UTC 6-hour quadrant index in [0, 3] for t.
+func utcQuadrantIndex(t time.Time) int {
+	return t.UTC().Hour() / 6
 }
 
 func quadSketchGet(sk []string, i int) string {

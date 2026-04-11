@@ -37,7 +37,7 @@ Low-level designs for the deterministic autosizing controller. Requirements: [au
 | 120 | [Global defaults ConfigMap](./120-global-defaults-configmap.md) | Admission | implemented | autosize-120 |
 | 200 | [DRA integration](./200-dra-integration.md) | Future | stub | autosize-200 |
 | 300 | [Node-aware optimization](./300-node-aware-optimization.md) | Future | stub | autosize-300 |
-| 400 | [Time-based patterns](./400-time-based-patterns.md) | Future | stub | autosize-400 |
+| 400 | [Time-based patterns](./400-time-based-patterns.md) | Extensions + roadmap §15 | partial — UTC quadrants + HW shipped; Phase 5 deferred — see 400 | [#17](https://github.com/muandane/saturdai/issues/17) |
 
 ### Tracking issues
 
@@ -60,7 +60,7 @@ Use **one issue per LLD** (or one epic per phase with child issues). Suggested t
 | `[LLD-120] Global defaults ConfigMap` | 120 |
 | `[LLD-200] DRA integration (future)` | 200 |
 | `[LLD-300] Node-aware optimization (future)` | 300 |
-| `[LLD-400] Time-based patterns (future)` | 400 |
+| `[LLD-400] Time-based patterns (shipped subset + Phase 5 backlog)` | 400 |
 
 Replace the **Issue** column in the table above with your tracker ID (e.g. `https://github.com/org/repo/issues/42` or `#42`).
 

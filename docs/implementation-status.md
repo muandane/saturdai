@@ -67,7 +67,7 @@ Last reviewed: 2026-04-11 — includes learned-state pipeline (ConfigMap `mlstat
 |------|-----|--------|-------|-------|
 | DRA integration | 200 | N/A — stub | | — |
 | Node-aware sketches / bin-packing | 300 | N/A — stub | | — |
-| Time-of-day / hour buckets | 400 | Partial | Quadrant sketches (6h UTC) + HW hourly season in code; full Phase 5 (24 slots, auto mode switch) still future — see [LLD-400](../LLD/autosize/400-time-based-patterns.md) | [#12](https://github.com/muandane/saturdai/issues/12) |
+| Time-of-day / hour buckets | 400 | Partial | Quadrant sketches (6h UTC) + HW hourly season in code; full Phase 5 (24 slots, auto mode switch) deferred — see [LLD-400](../LLD/autosize/400-time-based-patterns.md) | [#17](https://github.com/muandane/saturdai/issues/17) |
 
 ## Explicit spec exclusions (unchanged)
 
