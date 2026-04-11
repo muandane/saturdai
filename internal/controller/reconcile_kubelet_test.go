@@ -45,7 +45,6 @@ func TestMetricsRequeueAfter(t *testing.T) {
 	}
 }
 
-//go:fix inline
 func int32Ptr(v int32) *int32 {
 	return new(v)
 }
