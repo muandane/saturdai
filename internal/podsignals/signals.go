@@ -29,9 +29,17 @@ func (s *Snapshot) MergePodStatus(pod *corev1.Pod) {
 	}
 	for _, cs := range pod.Status.ContainerStatuses {
 		s.RestartCount[cs.Name] = cs.RestartCount
-		if cs.LastTerminationState.Terminated != nil && cs.LastTerminationState.Terminated.Reason == "OOMKilled" {
-			t := cs.LastTerminationState.Terminated.FinishedAt
-			s.LastOOMKill[cs.Name] = &t
+		if cs.LastTerminationState.Terminated == nil || cs.LastTerminationState.Terminated.Reason != "OOMKilled" {
+			continue
+		}
+		finishedAt := cs.LastTerminationState.Terminated.FinishedAt
+		if finishedAt.IsZero() {
+			continue
+		}
+		prev := s.LastOOMKill[cs.Name]
+		if prev == nil || finishedAt.After(prev.Time) {
+			t := finishedAt.DeepCopy()
+			s.LastOOMKill[cs.Name] = t
 		}
 	}
 }

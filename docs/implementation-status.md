@@ -23,7 +23,7 @@ Last reviewed: 2026-04-11 (update when scope changes).
 | Kubelet stats via node proxy | §5, 030 | Done | `internal/kubelet` — not direct kubelet |
 | EMA short/long (α 0.2 / 0.05) | §6, 040 | Done | `internal/aggregate/ema.go` |
 | DDSketch in status (base64) | §6, 040 | Done | `internal/aggregate` |
-| Pod signals: OOM from pod status | §5, 050 | Partial | OOM used in safety via in-memory snapshot; `status.containers[].lastOOMKill` not populated from pods |
+| Pod signals: OOM from pod status | §5, 050 | Done | Merged pod `lastState` OOM `finishedAt` (max per container) in `status.containers[].stats.lastOOMKill`; safety uses same snapshot |
 | Pod signals: restart count & delta | §5, §9, 050 | Not started | `RestartCount` collected in snapshot but not persisted; no delta vs prior reconcile |
 | Four modes + percentile tables | §8, 060 | Done | `internal/recommend/recommend.go` |
 | Prediction `EMA_long + k * (EMA_short - EMA_long)` | §6–7, 060 | Not started | Percentiles only; `k` unused |
