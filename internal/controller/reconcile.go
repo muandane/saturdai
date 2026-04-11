@@ -130,6 +130,8 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 		st.Stats.CPU.LastUpdated = &now
 		st.Stats.Memory.LastUpdated = &now
 
+		applyLastOOMKillFromSnapshot(&st, sig.LastOOMKill[cname])
+
 		byName[cname] = st
 	}
 
