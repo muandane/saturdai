@@ -76,7 +76,7 @@ For each quantity (request/limit): if `new < current`, require `new >= current *
 
 ### Trend guard
 
-- If `slopePositive` for container memory: **skip memory** recommendation (keep previous template memory or omit patch fields for memory — 090 merges). Rationale: `trend_guard: memory slope positive`.
+- If `slopePositive` for container memory: **omit memory from actuation** (PATCH leaves template memory unchanged — 090); **do not** apply 70% decrease clamps to memory for that container. Engine values may still appear in `status.metricsRecommendations` / `status.recommendations` with rationale `trend_guard: memory slope positive` (spec §9).
 
 ### Rationale
 

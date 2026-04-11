@@ -27,9 +27,19 @@ Key differences from existing tools:
 
 - Horizontal Pod Autoscaling
 - Prometheus / external observability
-- ML or probabilistic models
+- ML or probabilistic models (see **Extensions** below for in-cluster learned state)
 - Direct Pod mutation
 - DRA (Phase 2+)
+
+### Extensions (post-MVP, in-repo)
+
+The MVP excludes **external** ML and Prometheus. The implementation may add **in-cluster, deterministic** extensions that stay explainable and auditable:
+
+- **`spec.collectionIntervalSeconds`** — reconcile/sample cadence (default 30s, bounded range).
+- **Per-container UTC quadrant sketches** — up to four base64 DDSketches per CPU/memory for 6-hour UTC buckets (00–06, 06–12, 12–18, 18–24), used for richer quantiles without raw samples.
+- **Learned state** (`ConfigMap` `mlstate-*`, owner-referenced) — CUSUM-style changepoint tracking, feedback EWMA bias, Holt–Winters seasonal components for forecasts — all **online**, no external store.
+
+These are **not** “black box” SaaS ML; they remain bounded state and appear in `status` / rationale. See [`docs/implementation-status.md`](../implementation-status.md).
 
 ---
 
@@ -87,7 +97,9 @@ spec:
       minMemory: "64Mi"
       maxMemory: "8Gi"
   cooldownMinutes: 15      # default: 15
+  collectionIntervalSeconds: 30   # optional; 10–300; reconcile requeue cadence
 status:
+  conditions: []           # see Status conditions below
   containers:
     - name: app
       stats:
@@ -95,11 +107,13 @@ status:
           emaShort: 0.0
           emaLong: 0.0
           sketch: ""       # base64 DDSketch
+          quadrantSketches: []   # optional; up to 4 base64 sketches (UTC 6h buckets)
           lastUpdated: ""
         memory:
           emaShort: 0.0
           emaLong: 0.0
           sketch: ""
+          quadrantSketches: []
           lastUpdated: ""
           slopeStreak: 0         # consecutive reconciles with mem EMAShort up; persisted (restart-safe)
           slopePositive: false   # true when slopeStreak >= N (default 5); blocks memory downsize
@@ -123,6 +137,18 @@ status:
   lastEvaluated: ""
   downsizePauseCyclesRemaining: 0   # restart-spike pause; decremented each reconcile
 ```
+
+### Status conditions
+
+`status.conditions` (Kubernetes-style) include at least:
+
+| Type | True when |
+|------|-----------|
+| `TargetResolved` | The referenced Deployment/StatefulSet exists and was resolved |
+| `MetricsAvailable` | Kubelet stats were collected for this evaluation cycle when required (pods scheduled to nodes), and aggregates/recommendations were updated |
+| `ProfileReady` | `TargetResolved` **and** `MetricsAvailable` are both True |
+
+If kubelet summary fetch fails for **all** nodes that host scheduled pods, set `MetricsAvailable=False` (reason such as `KubeletUnavailable`), **do not** advance `lastEvaluated` or emit a successful “metrics processed” outcome for that cycle, requeue after at least 10s and the configured collection interval.
 
 ---
 
@@ -152,8 +178,8 @@ Requires `nodes/stats` RBAC permission.
 
 ### Collection Interval
 
-- Default: every 30s
-- Configurable per profile
+- Default: every **30s** (`spec.collectionIntervalSeconds`, range 10–300)
+- Drives controller **requeue** cadence after a successful reconcile; kubelet failure requeue uses at least **10s** and the same interval
 
 ---
 
@@ -309,7 +335,12 @@ k           = 2.0
 
 ### Trend Guard
 
-- `slopePositive == true` → skip memory recommendation entirely
+When `slopePositive == true` for a container’s memory aggregate (§7):
+
+- **Actuation:** do **not** PATCH memory request/limit for that container — keep the workload’s current template memory (CPU may still update).
+- **Safety:** do not apply the 30% decrease **clamp** to memory for that container; engine output may still appear in `status.metricsRecommendations` / `status.recommendations` with a `trend_guard` note in rationale for traceability.
+
+This is **not** “strip memory from status”; it is **freeze memory on the workload** until the trend guard clears.
 
 ### Rationale Field
 
@@ -401,7 +432,8 @@ func (r *WorkloadProfileReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 | CronJobs | Use `burst` profile; detect idle periods via near-zero EMA |
 | Memory leak | `slopePositive` detection blocks downsizing |
 | Controller restart | Full state in CRD status — no in-memory loss |
-| No kubelet access | Requeue with backoff, surface condition on CRD |
+| No kubelet access | If every kubelet fetch fails for nodes with scheduled pods: `MetricsAvailable=False`, `ProfileReady=False`, persist status, **no** `lastEvaluated` update, requeue after `max(10s, collectionInterval)` with nil error so `RequeueAfter` applies |
+| Partial kubelet (some nodes OK) | Use stats from successful nodes; complete pipeline when possible |
 
 ---
 
@@ -485,7 +517,7 @@ No Prometheus. No VPA. No external store.
 ## 16. Constraints (Non-Negotiable)
 
 - No Prometheus dependency
-- No ML or probabilistic models
+- No **external** ML services or opaque probabilistic models; **in-cluster** deterministic extensions (§2 Extensions) are allowed and must remain explainable
 - All decisions deterministic and explainable via `status.recommendations[].rationale`
 - Must not destabilize workloads (safety mechanisms always active)
 - No raw sample storage — online algorithms only

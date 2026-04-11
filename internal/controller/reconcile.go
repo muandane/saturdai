@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -37,6 +38,21 @@ func requeueAfter(profile *autosizev1.WorkloadProfile) time.Duration {
 	return time.Duration(defaults.CollectionInterval(profile.Spec)) * time.Second
 }
 
+// metricsRequeueAfter is used when kubelet stats are unavailable: backoff at least 10s (spec §12).
+func metricsRequeueAfter(profile *autosizev1.WorkloadProfile) time.Duration {
+	d := requeueAfter(profile)
+	if d < 10*time.Second {
+		return 10 * time.Second
+	}
+	return d
+}
+
+// kubeletSummariesFullyUnavailable is true when pods are scheduled to nodes but every
+// kubelet summary fetch failed (no usable stats for this reconcile).
+func kubeletSummariesFullyUnavailable(nodeCount, summaryCount int) bool {
+	return nodeCount > 0 && summaryCount == 0
+}
+
 func (r *WorkloadProfileReconciler) now() time.Time {
 	if r.Clock != nil {
 		return r.Clock()
@@ -44,7 +60,7 @@ func (r *WorkloadProfileReconciler) now() time.Time {
 	return time.Now()
 }
 
-func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *autosizev1.WorkloadProfile) error {
+func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *autosizev1.WorkloadProfile) (*time.Duration, error) {
 	logger := log.FromContext(ctx)
 	ns := profile.Namespace
 	mode := defaults.EffectiveMode(profile.Spec)
@@ -56,24 +72,29 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 	if err != nil {
 		if target.IsNotFound(err) {
 			setCondition(profile, autosizev1.ConditionTypeTargetResolved, metav1.ConditionFalse, "NotFound", "target workload not found")
-			return r.persistStatus(ctx, profile)
+			syncProfileReady(profile)
+			if uerr := r.persistStatus(ctx, profile); uerr != nil {
+				return nil, uerr
+			}
+			return nil, nil
 		}
 		setCondition(profile, autosizev1.ConditionTypeTargetResolved, metav1.ConditionFalse, "Error", err.Error())
+		syncProfileReady(profile)
 		if uerr := r.persistStatus(ctx, profile); uerr != nil {
-			return uerr
+			return nil, uerr
 		}
-		return err
+		return nil, err
 	}
 	setCondition(profile, autosizev1.ConditionTypeTargetResolved, metav1.ConditionTrue, "Resolved", "target found")
 
 	sel, err := target.Selector(obj)
 	if err != nil {
-		return fmt.Errorf("selector: %w", err)
+		return nil, fmt.Errorf("selector: %w", err)
 	}
 
 	pods := &corev1.PodList{}
 	if err := r.Client.List(ctx, pods, client.InNamespace(ns), client.MatchingLabelsSelector{Selector: sel}); err != nil {
-		return fmt.Errorf("list pods: %w", err)
+		return nil, fmt.Errorf("list pods: %w", err)
 	}
 
 	sig := podsignals.NewSnapshot()
@@ -88,25 +109,60 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 			nodes[pods.Items[i].Spec.NodeName] = struct{}{}
 		}
 	}
+	var fetchErrs []string
 	for n := range nodes {
 		sum, err := r.Kubelet.FetchSummary(ctx, n)
 		if err != nil {
 			logger.Info("kubelet summary failed", "node", n, "error", err)
+			fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", n, err))
 			continue
 		}
 		summaries[n] = sum
 	}
+	if kubeletSummariesFullyUnavailable(len(nodes), len(summaries)) {
+		return r.persistKubeletUnavailable(ctx, profile, fetchErrs)
+	}
 
+	return r.runObserveAndActuate(ctx, profile, obj, pods.Items, summaries, sig, mode, baselineSeen, pauseRemaining)
+}
+
+func (r *WorkloadProfileReconciler) persistKubeletUnavailable(ctx context.Context, profile *autosizev1.WorkloadProfile, fetchErrs []string) (*time.Duration, error) {
+	msg := strings.Join(fetchErrs, "; ")
+	if msg == "" {
+		msg = "kubelet summary fetch failed for all nodes with scheduled pods"
+	}
+	setCondition(profile, autosizev1.ConditionTypeMetricsAvailable, metav1.ConditionFalse, "KubeletUnavailable", msg)
+	syncProfileReady(profile)
+	if uerr := r.persistStatus(ctx, profile); uerr != nil {
+		return nil, uerr
+	}
+	d := metricsRequeueAfter(profile)
+	return &d, nil
+}
+
+func (r *WorkloadProfileReconciler) runObserveAndActuate(
+	ctx context.Context,
+	profile *autosizev1.WorkloadProfile,
+	obj runtime.Object,
+	pods []corev1.Pod,
+	summaries map[string]*kubelet.Summary,
+	sig *podsignals.Snapshot,
+	mode string,
+	baselineSeen bool,
+	pauseRemaining int32,
+) (*time.Duration, error) {
+	logger := log.FromContext(ctx)
+	ns := profile.Namespace
 	tplNames, err := target.TemplateContainerNames(obj)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	mlState := mlstate.New()
 	if r.MLState != nil {
 		loaded, loadErr := r.MLState.Load(ctx, profile)
 		if loadErr != nil {
-			return loadErr
+			return nil, loadErr
 		}
 		mlState = loaded
 	}
@@ -117,14 +173,14 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 	for _, cname := range tplNames {
 		st := byName[cname]
 
-		cpuMilli, memBytes, throttled, usage := collectUsageForContainer(summaries, ns, pods.Items, cname)
+		cpuMilli, memBytes, throttled, usage := collectUsageForContainer(summaries, ns, pods, cname)
 		if throttled > 0 && usage > 0 {
 			sig.SetThrottleRatio(cname, throttled, usage)
 		}
 
 		fCPU, fMem, err := r.ingestContainerMetrics(logger, profile, mlState, &st, cname, cpuMilli, memBytes)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		forecasts[cname] = struct{ CPU, Mem float64 }{CPU: fCPU, Mem: fMem}
 
@@ -180,7 +236,7 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 			MaxMemory:         mm.MaxMemory,
 		})
 		if err != nil {
-			return err
+			return nil, err
 		}
 		recs = append(recs, rec)
 	}
@@ -189,7 +245,7 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 
 	curRes, err := currentResourcesFromTemplate(obj, tplNames)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	blockDownsize := pauseRemaining > 0 || anySpike
@@ -199,26 +255,27 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 	lastEval := metav1.NewTime(r.now())
 	profile.Status.LastEvaluated = &lastEval
 	setCondition(profile, autosizev1.ConditionTypeMetricsAvailable, metav1.ConditionTrue, "Collected", "metrics processed")
+	syncProfileReady(profile)
 
 	if err := r.persistStatus(ctx, profile); err != nil {
-		return err
+		return nil, err
 	}
 	if err := r.saveMLState(ctx, profile, mlState); err != nil {
-		return err
+		return nil, err
 	}
 
 	if !actuationEnabled() || !safe.ShouldPatch {
-		return nil
+		return nil, nil
 	}
 
 	if err := actuate.Apply(ctx, r.Client, obj, safe.Recommendations, safe.SkipMemory); err != nil {
-		return err
+		return nil, err
 	}
 	profile.Status.LastApplied = &metav1.Time{Time: r.now()}
 	if err := r.persistStatus(ctx, profile); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return nil, nil
 }
 
 type minMax struct {
@@ -348,4 +405,48 @@ func setCondition(profile *autosizev1.WorkloadProfile, typ string, status metav1
 		}
 	}
 	profile.Status.Conditions = append(profile.Status.Conditions, c)
+}
+
+func conditionStatus(profile *autosizev1.WorkloadProfile, typ string) metav1.ConditionStatus {
+	for i := range profile.Status.Conditions {
+		if profile.Status.Conditions[i].Type == typ {
+			return profile.Status.Conditions[i].Status
+		}
+	}
+	return metav1.ConditionFalse
+}
+
+func conditionMessage(profile *autosizev1.WorkloadProfile, typ string) string {
+	for i := range profile.Status.Conditions {
+		if profile.Status.Conditions[i].Type == typ {
+			return profile.Status.Conditions[i].Message
+		}
+	}
+	return ""
+}
+
+// syncProfileReady sets ProfileReady to True iff TargetResolved and MetricsAvailable are True.
+func syncProfileReady(profile *autosizev1.WorkloadProfile) {
+	targetOK := conditionStatus(profile, autosizev1.ConditionTypeTargetResolved) == metav1.ConditionTrue
+	metricsOK := conditionStatus(profile, autosizev1.ConditionTypeMetricsAvailable) == metav1.ConditionTrue
+
+	if targetOK && metricsOK {
+		setCondition(profile, autosizev1.ConditionTypeProfileReady, metav1.ConditionTrue, "Ready", "target resolved and metrics available")
+		return
+	}
+	var reason, msg string
+	if !targetOK {
+		reason = "TargetNotReady"
+		msg = conditionMessage(profile, autosizev1.ConditionTypeTargetResolved)
+		if msg == "" {
+			msg = "target workload not ready"
+		}
+	} else {
+		reason = "MetricsNotAvailable"
+		msg = conditionMessage(profile, autosizev1.ConditionTypeMetricsAvailable)
+		if msg == "" {
+			msg = "metrics not yet available"
+		}
+	}
+	setCondition(profile, autosizev1.ConditionTypeProfileReady, metav1.ConditionFalse, reason, msg)
 }

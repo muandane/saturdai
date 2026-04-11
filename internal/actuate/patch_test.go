@@ -112,3 +112,66 @@ func TestApply_StatefulSet_updatesPodTemplateResources(t *testing.T) {
 		t.Fatalf("cpu request got %s", c.Resources.Requests.Cpu().String())
 	}
 }
+
+func TestApply_Deployment_skipMemory_leavesTemplateMemoryUnchanged(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	scheme := schemeForActuate()
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "d1", Namespace: "ns1"},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "x"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "x"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "app",
+							Image: "nginx",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("100m"),
+									corev1.ResourceMemory: resource.MustParse("128Mi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("200m"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dep).Build()
+
+	recs := []autosizev1.Recommendation{
+		{
+			ContainerName: "app",
+			CPURequest:    resource.MustParse("150m"),
+			CPULimit:      resource.MustParse("300m"),
+			MemoryRequest: resource.MustParse("64Mi"),
+			MemoryLimit:   resource.MustParse("128Mi"),
+		},
+	}
+	skip := map[string]bool{"app": true}
+	if err := Apply(ctx, cl, dep, recs, skip); err != nil {
+		t.Fatal(err)
+	}
+
+	got := &appsv1.Deployment{}
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(dep), got); err != nil {
+		t.Fatal(err)
+	}
+	c := got.Spec.Template.Spec.Containers[0]
+	if c.Resources.Requests.Cpu().String() != "150m" {
+		t.Fatalf("cpu request got %s want 150m", c.Resources.Requests.Cpu().String())
+	}
+	if c.Resources.Requests.Memory().String() != "128Mi" {
+		t.Fatalf("memory request should stay at template when skipMemory: got %s", c.Resources.Requests.Memory().String())
+	}
+	if c.Resources.Limits.Memory().String() != "256Mi" {
+		t.Fatalf("memory limit should stay at template when skipMemory: got %s", c.Resources.Limits.Memory().String())
+	}
+}

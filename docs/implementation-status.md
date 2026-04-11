@@ -4,7 +4,7 @@
 **LLD index:** [LLD/autosize/README.md](./LLD/autosize/README.md)  
 **GitHub:** [muandane/saturdai](https://github.com/muandane/saturdai) — tracking issues use `[#NN](https://github.com/muandane/saturdai/issues/NN)` in **Issue** columns below.
 
-Last reviewed: 2026-04-11 — includes learned-state pipeline (ConfigMap `mlstate-*`, CUSUM, feedback bias, quadrant sketches, Holt–Winters forecasts).
+Last reviewed: 2026-04-11 — includes learned-state pipeline (ConfigMap `mlstate-*`, CUSUM, feedback bias, quadrant sketches, Holt–Winters forecasts), kubelet-all-fail `MetricsAvailable=False` + `ProfileReady` composite condition ([#12](https://github.com/muandane/saturdai/issues/12)).
 
 ## Legend
 
@@ -21,7 +21,7 @@ Last reviewed: 2026-04-11 — includes learned-state pipeline (ConfigMap `mlstat
 |------|----------------|--------|--------|
 | WorkloadProfile CRD & API shapes | §4, 010 | Done | `api/v1`, `config/crd/bases` |
 | Target: Deployment / StatefulSet | 020 | Done | `internal/target` |
-| Kubelet stats via node proxy | §5, 030 | Done | `internal/kubelet` — not direct kubelet |
+| Kubelet stats via node proxy | §5, 030 | Done | `internal/kubelet` — not direct kubelet; all-node fetch failure → `MetricsAvailable=False`, no `lastEvaluated` advance, requeue (spec §12) |
 | EMA short/long (α 0.2 / 0.05) | §6, 040 | Done | `internal/aggregate/ema.go` |
 | DDSketch in status (base64) | §6, 040 | Done | `internal/aggregate` |
 | Pod signals: OOM from pod status | §5, 050 | Done | Merged pod `lastState` OOM `finishedAt` (max per container) in `status.containers[].stats.lastOOMKill`; safety uses same snapshot |
@@ -35,6 +35,7 @@ Last reviewed: 2026-04-11 — includes learned-state pipeline (ConfigMap `mlstat
 | Safety: restart spike → pause downsizing 2 cycles | §9, 070 | Done | `delta > 3` after baseline → `status.downsizePauseCyclesRemaining`; safety holds decreases (`internal/safety`); counter decremented each reconcile (`restart_pause.go`) |
 | Trend guard: `slopePositive` blocks memory downsize | §6, §9, 070 | Done | `status.containers[].stats.memory.slopeStreak` + prior `EMA_short` from last reconcile; `N=5` in `internal/aggregate/slope.go`; tests in `slope_test.go` |
 | `metricsRecommendations` vs `recommendations` | §4, §9, 060–070 | Done | Pre/post safety |
+| Status conditions (`TargetResolved`, `MetricsAvailable`, `ProfileReady`) | §4, §12 | Done | `ProfileReady` True iff target resolved and metrics available; kubelet all-fail sets `MetricsAvailable=False` |
 | Reconcile loop, status update | §10, 080 | Done | `internal/controller/reconcile.go` |
 | Actuation: PATCH workload template | §11, 090 | Done | `internal/actuate`; gated by `AUTOSIZE_ACTUATION=true` |
 | RBAC / packaging baseline | 100 | Done | `config/rbac`, samples |
@@ -66,7 +67,7 @@ Last reviewed: 2026-04-11 — includes learned-state pipeline (ConfigMap `mlstat
 |------|-----|--------|-------|-------|
 | DRA integration | 200 | N/A — stub | | — |
 | Node-aware sketches / bin-packing | 300 | N/A — stub | | — |
-| Time-of-day / hour buckets | 400 | Partial | Quadrant sketches (6h UTC) + HW hourly season in code; LLD 400 still stub-level | — |
+| Time-of-day / hour buckets | 400 | Partial | Quadrant sketches (6h UTC) + HW hourly season in code; full Phase 5 (24 slots, auto mode switch) still future — see [LLD-400](../LLD/autosize/400-time-based-patterns.md) | [#12](https://github.com/muandane/saturdai/issues/12) |
 
 ## Explicit spec exclusions (unchanged)
 
