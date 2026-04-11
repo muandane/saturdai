@@ -87,6 +87,10 @@ type CPUStats struct {
 	EMALong  float64 `json:"emaLong"`
 	// Sketch is a base64-encoded DDSketch protobuf.
 	Sketch string `json:"sketch"`
+	// QuadrantSketches holds base64 DDSketches for UTC 6h buckets (index 0=00–06, 1=06–12, 2=12–18, 3=18–24).
+	// +kubebuilder:validation:MaxItems=4
+	// +optional
+	QuadrantSketches []string `json:"quadrantSketches,omitempty"`
 	// +optional
 	LastUpdated *metav1.Time `json:"lastUpdated,omitempty"`
 }
@@ -96,6 +100,10 @@ type MemoryStats struct {
 	EMAShort float64 `json:"emaShort"`
 	EMALong  float64 `json:"emaLong"`
 	Sketch   string  `json:"sketch"`
+	// QuadrantSketches holds base64 DDSketches for UTC 6h buckets.
+	// +kubebuilder:validation:MaxItems=4
+	// +optional
+	QuadrantSketches []string `json:"quadrantSketches,omitempty"`
 	// +optional
 	LastUpdated   *metav1.Time `json:"lastUpdated,omitempty"`
 	SlopePositive bool         `json:"slopePositive"`

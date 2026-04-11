@@ -2,7 +2,6 @@
 package recommend
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/DataDog/sketches-go/ddsketch"
@@ -19,83 +18,46 @@ type Input struct {
 	Mode          string
 	CPUSketch     *ddsketch.DDSketch
 	MemSketch     *ddsketch.DDSketch
-	CPUEShort     float64
-	CPUELong      float64
-	MemShort      float64
-	MemLong       float64
-	MinCPU        *resource.Quantity
-	MaxCPU        *resource.Quantity
-	MinMemory     *resource.Quantity
-	MaxMemory     *resource.Quantity
+	// QuadrantCPUSketch optional time-of-day sketch (UTC 6h bucket); non-empty overrides CPUSketch for quantiles.
+	QuadrantCPUSketch *ddsketch.DDSketch
+	QuadrantMemSketch *ddsketch.DDSketch
+	CPUEShort         float64
+	CPUELong          float64
+	MemShort          float64
+	MemLong           float64
+	// ForecastCPU, ForecastMem optional Holt-Winters forecasts (millicores / bytes); used when > 0.
+	ForecastCPU float64
+	ForecastMem float64
+	MinCPU      *resource.Quantity
+	MaxCPU      *resource.Quantity
+	MinMemory   *resource.Quantity
+	MaxMemory   *resource.Quantity
 }
 
-// Compute returns a recommendation for one container.
-func Compute(in Input) (autosizev1.Recommendation, error) {
-	mode := normalizeMode(in.Mode)
-	var cpuReqMilli, cpuLimMilli, memReqBytes, memLimBytes float64
-	var rationale string
-
-	switch mode {
-	case "cost":
-		cpuReqMilli, _ = qMilli(in.CPUSketch, 0.50)
-		cpuLimMilli, _ = qMilli(in.CPUSketch, 0.90)
-		memReqBytes, _ = qBytes(in.MemSketch, 0.50)
-		memLimBytes, _ = qBytes(in.MemSketch, 0.90)
-		rationale = fmt.Sprintf("cost: P50/P90 cpu & mem, mode=%s", mode)
-	case "balanced":
-		cpuReqMilli, _ = qMilli(in.CPUSketch, 0.70)
-		cpuLimMilli, _ = qMilli(in.CPUSketch, 0.95)
-		memReqBytes, _ = qBytes(in.MemSketch, 0.70)
-		memLimBytes, _ = qBytes(in.MemSketch, 0.95)
-		rationale = fmt.Sprintf("balanced: P70/P95 cpu & mem, mode=%s", mode)
-	case "resilience":
-		p90c, _ := qMilli(in.CPUSketch, 0.90)
-		p99c, _ := qMilli(in.CPUSketch, 0.99)
-		cpuReqMilli = p90c
-		cpuLimMilli = p99c * 1.1
-		p90m, _ := qBytes(in.MemSketch, 0.90)
-		p99m, _ := qBytes(in.MemSketch, 0.99)
-		memReqBytes = p90m
-		memLimBytes = p99m * 1.2
-		rationale = fmt.Sprintf("resilience: P90 req, P99*1.1/1.2 limits, mode=%s", mode)
-	case "burst":
-		p40c, _ := qMilli(in.CPUSketch, 0.40)
-		p99c, _ := qMilli(in.CPUSketch, 0.99)
-		cpuReqMilli = p40c
-		peakCPU := math.Max(p99c, in.CPUEShort)
-		cpuLimMilli = peakCPU
-		p40m, _ := qBytes(in.MemSketch, 0.40)
-		memReqBytes = p40m
-		p99m, _ := qBytes(in.MemSketch, 0.99)
-		peakMem := math.Max(p99m, in.MemShort)
-		memLimBytes = peakMem
-		rationale = fmt.Sprintf("burst: P40 req, peak=max(P99,EMA_short), mode=%s", mode)
-	default:
-		cpuReqMilli, _ = qMilli(in.CPUSketch, 0.70)
-		cpuLimMilli, _ = qMilli(in.CPUSketch, 0.95)
-		memReqBytes, _ = qBytes(in.MemSketch, 0.70)
-		memLimBytes, _ = qBytes(in.MemSketch, 0.95)
-		rationale = fmt.Sprintf("balanced(default): P70/P95, mode=%s", mode)
+func effectiveCPUSketch(in Input) *ddsketch.DDSketch {
+	if sk := in.QuadrantCPUSketch; sk != nil && !sk.IsEmpty() {
+		return sk
 	}
+	return in.CPUSketch
+}
 
-	cpuReq := milliQty(cpuReqMilli)
-	cpuLim := milliQty(cpuLimMilli)
-	memReq := bytesQty(memReqBytes)
-	memLim := bytesQty(memLimBytes)
+func effectiveMemSketch(in Input) *ddsketch.DDSketch {
+	if sk := in.QuadrantMemSketch; sk != nil && !sk.IsEmpty() {
+		return sk
+	}
+	return in.MemSketch
+}
 
-	cpuReq = clampQty(cpuReq, in.MinCPU, in.MaxCPU)
-	cpuLim = clampQty(cpuLim, in.MinCPU, in.MaxCPU)
-	memReq = clampQty(memReq, in.MinMemory, in.MaxMemory)
-	memLim = clampQty(memLim, in.MinMemory, in.MaxMemory)
+func memShortForBurst(in Input) float64 {
+	if in.ForecastMem > 0 {
+		return math.Max(in.MemShort, in.ForecastMem)
+	}
+	return in.MemShort
+}
 
-	return autosizev1.Recommendation{
-		ContainerName: in.ContainerName,
-		CPURequest:    cpuReq,
-		CPULimit:      cpuLim,
-		MemoryRequest: memReq,
-		MemoryLimit:   memLim,
-		Rationale:     rationale,
-	}, nil
+// Compute returns a recommendation for one container (no bias).
+func Compute(in Input) (autosizev1.Recommendation, error) {
+	return New(in.Mode, NoopBias{}).Compute(in)
 }
 
 func normalizeMode(mode string) string {
@@ -117,7 +79,7 @@ func qMilli(sk *ddsketch.DDSketch, q float64) (float64, error) {
 }
 
 func qBytes(sk *ddsketch.DDSketch, q float64) (float64, error) {
-	return qMilli(sk, q) // same API — values are in bytes for memory sketch
+	return qMilli(sk, q)
 }
 
 func milliQty(m float64) resource.Quantity {
