@@ -8,6 +8,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -36,6 +37,35 @@ func requeueAfter(profile *autosizev1.WorkloadProfile) time.Duration {
 	return time.Duration(defaults.CollectionInterval(profile.Spec)) * time.Second
 }
 
+// statusUpdate writes status for the in-memory profile object (same RV as reconcile start).
+func (r *WorkloadProfileReconciler) statusUpdate(ctx context.Context, profile *autosizev1.WorkloadProfile) error {
+	err := r.Client.Status().Update(ctx, profile)
+	if err == nil {
+		return nil
+	}
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	return err
+}
+
+// refreshStatus re-fetches the WorkloadProfile then applies profile.Status, avoiding lost updates after long work.
+func (r *WorkloadProfileReconciler) refreshStatus(ctx context.Context, profile *autosizev1.WorkloadProfile) error {
+	key := client.ObjectKeyFromObject(profile)
+	fresh := &autosizev1.WorkloadProfile{}
+	if err := r.Client.Get(ctx, key, fresh); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	fresh.Status = profile.Status
+	if err := r.Client.Status().Update(ctx, fresh); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
 func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *autosizev1.WorkloadProfile) error {
 	logger := log.FromContext(ctx)
 	ns := profile.Namespace
@@ -45,10 +75,12 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 	if err != nil {
 		if target.IsNotFound(err) {
 			setCondition(profile, autosizev1.ConditionTypeTargetResolved, metav1.ConditionFalse, "NotFound", "target workload not found")
-			return r.Client.Status().Update(ctx, profile)
+			return r.statusUpdate(ctx, profile)
 		}
 		setCondition(profile, autosizev1.ConditionTypeTargetResolved, metav1.ConditionFalse, "Error", err.Error())
-		_ = r.Client.Status().Update(ctx, profile)
+		if uerr := r.statusUpdate(ctx, profile); uerr != nil {
+			return uerr
+		}
 		return err
 	}
 	setCondition(profile, autosizev1.ConditionTypeTargetResolved, metav1.ConditionTrue, "Resolved", "target found")
@@ -171,7 +203,7 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 	profile.Status.LastEvaluated = &t
 	setCondition(profile, autosizev1.ConditionTypeMetricsAvailable, metav1.ConditionTrue, "Collected", "metrics processed")
 
-	if err := r.Client.Status().Update(ctx, profile); err != nil {
+	if err := r.refreshStatus(ctx, profile); err != nil {
 		return err
 	}
 
@@ -183,7 +215,7 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 		return err
 	}
 	profile.Status.LastApplied = &metav1.Time{Time: time.Now()}
-	return r.Client.Status().Update(ctx, profile)
+	return r.refreshStatus(ctx, profile)
 }
 
 type minMax struct {

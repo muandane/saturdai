@@ -54,7 +54,8 @@ func (r *WorkloadProfileReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	if err := r.reconcile(ctx, profile); err != nil {
 		logger.Error(err, "reconcile WorkloadProfile")
-		return ctrl.Result{RequeueAfter: requeueAfter(profile)}, err
+		// Do not set RequeueAfter when err != nil; controller-runtime ignores it.
+		return ctrl.Result{}, err
 	}
 	return ctrl.Result{RequeueAfter: requeueAfter(profile)}, nil
 }
