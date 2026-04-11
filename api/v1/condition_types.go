@@ -16,9 +16,12 @@ limitations under the License.
 
 package v1
 
-// Condition types for WorkloadProfile status.
+// Condition types for WorkloadProfile status.conditions.
 const (
-	ConditionTypeTargetResolved   = "TargetResolved"
+	// ConditionTypeTargetResolved is True when the referenced Deployment or StatefulSet exists and was read successfully.
+	ConditionTypeTargetResolved = "TargetResolved"
+	// ConditionTypeMetricsAvailable is True when the controller has processed kubelet stats for this reconcile.
 	ConditionTypeMetricsAvailable = "MetricsAvailable"
-	ConditionTypeProfileReady     = "ProfileReady"
+	// ConditionTypeProfileReady is a composite condition: True when TargetResolved and MetricsAvailable are both True.
+	ConditionTypeProfileReady = "ProfileReady"
 )

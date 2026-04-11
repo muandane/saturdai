@@ -22,14 +22,14 @@ func TestMetricsRequeueAfter(t *testing.T) {
 		{
 			name: "short_interval_clamped_to_10s",
 			spec: autosizev1.WorkloadProfileSpec{
-				CollectionIntervalSeconds: int32Ptr(5),
+				CollectionIntervalSeconds: new(int32(5)),
 			},
 			want: 10 * time.Second,
 		},
 		{
 			name: "long_interval_120s",
 			spec: autosizev1.WorkloadProfileSpec{
-				CollectionIntervalSeconds: int32Ptr(120),
+				CollectionIntervalSeconds: new(int32(120)),
 			},
 			want: 120 * time.Second,
 		},
