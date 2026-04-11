@@ -192,6 +192,8 @@ func (r *WorkloadProfileReconciler) reconcile(ctx context.Context, profile *auto
 		recs = append(recs, rec)
 	}
 
+	profile.Status.MetricsRecommendations = append([]autosizev1.Recommendation(nil), recs...)
+
 	curRes, err := currentResourcesFromTemplate(obj, tplNames)
 	if err != nil {
 		return err

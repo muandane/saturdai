@@ -139,6 +139,15 @@ var _ = Describe("WorkloadProfile Controller", func() {
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, typeNamespacedName, workloadprofile)).To(Succeed())
+			Expect(workloadprofile.Status.MetricsRecommendations).To(HaveLen(1))
+			Expect(workloadprofile.Status.Recommendations).To(HaveLen(1))
+			Expect(workloadprofile.Status.Recommendations[0].Rationale).To(ContainSubstring("safety: decrease_step"))
+			m := workloadprofile.Status.MetricsRecommendations[0]
+			e := workloadprofile.Status.Recommendations[0]
+			Expect(m.CPURequest.Cmp(e.CPURequest)).NotTo(BeZero(), "metrics vs effective CPU request should differ when safety clamps from zero baseline")
+			Expect(e.Rationale).To(ContainSubstring("safety: decrease_step cpu_request"))
 		})
 	})
 })

@@ -1,6 +1,7 @@
 package safety
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -97,5 +98,42 @@ func TestApply_UsesSeparateCPUAndMemoryClamps(t *testing.T) {
 	mr := r.MemoryRequest
 	if mr.Value() != minMem {
 		t.Fatalf("memory request got %d want %d", mr.Value(), minMem)
+	}
+	if !strings.Contains(r.Rationale, "safety: decrease_step cpu_request") {
+		t.Fatalf("rationale should note cpu_request clamp: %q", r.Rationale)
+	}
+	if !strings.Contains(r.Rationale, "safety: decrease_step memory_request") {
+		t.Fatalf("rationale should note memory_request clamp: %q", r.Rationale)
+	}
+}
+
+func TestApply_NoDecreaseStepNoteWhenNoClamp(t *testing.T) {
+	profile := &autosizev1.WorkloadProfile{}
+	cur := map[string]corev1.ResourceRequirements{
+		"app": {
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("50m"),
+				corev1.ResourceMemory: resource.MustParse("32Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("100m"),
+				corev1.ResourceMemory: resource.MustParse("64Mi"),
+			},
+		},
+	}
+	base := []autosizev1.Recommendation{
+		{
+			ContainerName: "app",
+			CPURequest:    resource.MustParse("200m"),
+			MemoryRequest: resource.MustParse("128Mi"),
+			CPULimit:      resource.MustParse("400m"),
+			MemoryLimit:   resource.MustParse("256Mi"),
+			Rationale:     "balanced: test",
+		},
+	}
+	res := Apply(profile, base, cur, podsignals.NewSnapshot(), time.Unix(0, 0))
+	r := res.Recommendations[0]
+	if strings.Contains(r.Rationale, "safety: decrease_step") {
+		t.Fatalf("rationale should not contain decrease_step when recommendation is above current: %q", r.Rationale)
 	}
 }

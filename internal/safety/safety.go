@@ -2,6 +2,7 @@
 package safety
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -71,18 +72,30 @@ func Apply(
 		}
 		if cur.Requests != nil {
 			if c := cur.Requests.Cpu(); c != nil {
-				out[i].CPURequest = clampDecreaseCPU(out[i].CPURequest, *c)
+				before := out[i].CPURequest
+				after := clampDecreaseCPU(before, *c)
+				out[i].CPURequest = after
+				out[i].Rationale = appendDecreaseStepNote(out[i].Rationale, "cpu_request", before, after, *c)
 			}
 			if m := cur.Requests.Memory(); m != nil && !skipMem[name] {
-				out[i].MemoryRequest = clampDecreaseMemory(out[i].MemoryRequest, *m)
+				before := out[i].MemoryRequest
+				after := clampDecreaseMemory(before, *m)
+				out[i].MemoryRequest = after
+				out[i].Rationale = appendDecreaseStepNote(out[i].Rationale, "memory_request", before, after, *m)
 			}
 		}
 		if cur.Limits != nil {
 			if c := cur.Limits.Cpu(); c != nil {
-				out[i].CPULimit = clampDecreaseCPU(out[i].CPULimit, *c)
+				before := out[i].CPULimit
+				after := clampDecreaseCPU(before, *c)
+				out[i].CPULimit = after
+				out[i].Rationale = appendDecreaseStepNote(out[i].Rationale, "cpu_limit", before, after, *c)
 			}
 			if m := cur.Limits.Memory(); m != nil && !skipMem[name] {
-				out[i].MemoryLimit = clampDecreaseMemory(out[i].MemoryLimit, *m)
+				before := out[i].MemoryLimit
+				after := clampDecreaseMemory(before, *m)
+				out[i].MemoryLimit = after
+				out[i].Rationale = appendDecreaseStepNote(out[i].Rationale, "memory_limit", before, after, *m)
 			}
 		}
 	}
@@ -109,6 +122,17 @@ func Apply(
 		ShouldPatch:     shouldPatch,
 		SkipMemory:      skipMem,
 	}
+}
+
+// appendDecreaseStepNote appends a rationale fragment when the 70% decrease clamp changes a quantity.
+func appendDecreaseStepNote(rationale, axis string, before, after, current resource.Quantity) string {
+	if after.Cmp(before) == 0 {
+		return rationale
+	}
+	return rationale + fmt.Sprintf(
+		"; safety: decrease_step %s %s->%s (floor 70%% of current %s)",
+		axis, before.String(), after.String(), current.String(),
+	)
 }
 
 // clampDecreaseCPU applies a 70% floor of current when the new recommendation is lower (millicores).

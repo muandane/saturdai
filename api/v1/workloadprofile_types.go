@@ -135,7 +135,15 @@ type WorkloadProfileStatus struct {
 	// +optional
 	Containers []ProfileContainerStatus `json:"containers,omitempty"`
 
-	// Recommendations are computed requests/limits with human-readable rationale.
+	// MetricsRecommendations are requests/limits from the recommendation engine before safety.Apply
+	// (cooldown, OOM/throttle overrides, 70% decrease floor, trend guard). Omitted when empty.
+	// +kubebuilder:validation:MaxItems=20
+	// +optional
+	MetricsRecommendations []Recommendation `json:"metricsRecommendations,omitempty"`
+
+	// Recommendations are effective requests/limits after safety.Apply, with human-readable rationale.
+	// These match what actuation and the pod webhook apply when enabled.
+	// +kubebuilder:validation:MaxItems=20
 	// +optional
 	Recommendations []Recommendation `json:"recommendations,omitempty"`
 
