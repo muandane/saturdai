@@ -22,14 +22,14 @@ func TestMetricsRequeueAfter(t *testing.T) {
 		{
 			name: "short_interval_clamped_to_10s",
 			spec: autosizev1.WorkloadProfileSpec{
-				CollectionIntervalSeconds: new(int32(5)),
+				CollectionIntervalSeconds: int32Ptr(5),
 			},
 			want: 10 * time.Second,
 		},
 		{
 			name: "long_interval_120s",
 			spec: autosizev1.WorkloadProfileSpec{
-				CollectionIntervalSeconds: new(int32(120)),
+				CollectionIntervalSeconds: int32Ptr(120),
 			},
 			want: 120 * time.Second,
 		},
@@ -45,7 +45,6 @@ func TestMetricsRequeueAfter(t *testing.T) {
 	}
 }
 
-//go:fix inline
 func int32Ptr(v int32) *int32 {
 	return new(v)
 }
