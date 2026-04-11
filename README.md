@@ -2,13 +2,13 @@
 
 Kubernetes operator that implements a **deterministic, explainable** CPU/memory right-sizing loop for Deployments and StatefulSets: kubelet metrics (no Prometheus), EMA + DDSketch aggregates in `WorkloadProfile` status, mode-based recommendations, safety rules, and optional actuation via workload PATCH.
 
-**Docs:** [Controller spec](docs/spec/autosize-controller-spec.md) · [LLD index](docs/LLD/autosize/README.md)
+**Docs:** [Controller spec](docs/spec/autosize-controller-spec.md) · [LLD index](docs/LLD/autosize/README.md) · [Implementation status](docs/implementation-status.md)
 
 **API group:** `autosize.saturdai.auto/v1` · kind: `WorkloadProfile`
 
 ## Description
 
-The reconciler resolves `spec.targetRef` to a workload, lists pods, pulls kubelet `/stats/summary` through the API server node proxy, updates per-container aggregates and recommendations in status, and optionally patches the workload when **`AUTOSIZE_ACTUATION`** is set to `true` or `1` (default is **observe-only**).
+The reconciler resolves `spec.targetRef` to a workload, lists pods, pulls kubelet `/stats/summary` through the API server node proxy, updates per-container aggregates and recommendations in status, and optionally patches the workload when **`AUTOSIZE_ACTUATION`** is set to `true` or `1` (default is **observe-only**). Pod **restart counts** (max per container across replicas) are stored in status; when the delta since the last reconcile exceeds a threshold after a baseline exists, the safety layer **pauses downsizing** for two cycles (`status.downsizePauseCyclesRemaining`). See [LLD-050](docs/LLD/autosize/050-pod-signals.md) / [LLD-070](docs/LLD/autosize/070-safety-layer.md).
 
 ## Getting Started
 

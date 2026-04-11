@@ -120,6 +120,7 @@ status:
       rationale: "balanced: P70/P95, no OOM events; safety: decrease_step …"
   lastApplied: ""
   lastEvaluated: ""
+  downsizePauseCyclesRemaining: 0   # restart-spike pause; decremented each reconcile
 ```
 
 ---

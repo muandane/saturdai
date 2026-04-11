@@ -8,7 +8,7 @@ Define the `WorkloadProfile` CRD (`autosize.saturdai.auto/v1`): field semantics,
 
 | Spec § | Requirement (summary) |
 |--------|------------------------|
-| §4 | `targetRef` (Deployment \| StatefulSet), `mode`, optional per-container min/max, `cooldownMinutes`, status with containers stats, recommendations, `lastApplied` / `lastEvaluated` |
+| §4 | `targetRef` (Deployment \| StatefulSet), `mode`, optional per-container min/max, `cooldownMinutes`, status with containers stats, recommendations, `lastApplied` / `lastEvaluated`, `downsizePauseCyclesRemaining` (restart-spike pause) |
 | §6 | Status holds aggregates only (EMA, base64 sketch, OOM/restart fields); no raw samples; estimated size budget |
 | §16 | Deterministic, explainable via `recommendations[].rationale`; no raw sample storage |
 
@@ -32,7 +32,7 @@ Define the `WorkloadProfile` CRD (`autosize.saturdai.auto/v1`): field semantics,
   - `containers[]`: optional; `name` matches pod container name; `minCPU`, `maxCPU`, `minMemory`, `maxMemory` as `resource.Quantity` or string with validation.
   - `cooldownMinutes`: optional int32; default 15.
   - `collectionIntervalSeconds`: optional; default 30 (spec §5) — if omitted from spec YAML, add here for implementability.
-- **Status fields:** mirror spec §4 YAML; Go structs align with §6 `ContainerStats` / `MetricAggregate`; `recommendations[]` includes `containerName`, four quantities, `rationale` string.
+- **Status fields:** mirror spec §4 YAML; Go structs align with §6 `ContainerStats` / `MetricAggregate`; `recommendations[]` includes `containerName`, four quantities, `rationale` string; `downsizePauseCyclesRemaining` counts reconcile cycles where downsizing is suppressed after a restart spike (070).
 - **Subresources:** `status: {}` enabled; no scale subresource.
 
 **Validation (minimum):**

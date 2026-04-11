@@ -3,7 +3,7 @@
 **Authoritative requirements:** [spec/autosize-controller-spec.md](./spec/autosize-controller-spec.md)  
 **LLD index:** [LLD/autosize/README.md](./LLD/autosize/README.md)
 
-Last reviewed: 2026-04-11 (update when scope changes).
+Last reviewed: 2026-04-11 — LLD 010/050/070 and README aligned with restart spike implementation (update when scope changes).
 
 ## Legend
 
