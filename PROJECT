@@ -8,4 +8,14 @@ layout:
 - go.kubebuilder.io/v4
 projectName: saturdai
 repo: github.com/muandane/saturdai
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: saturdai.auto
+  group: autosize
+  kind: WorkloadProfile
+  path: github.com/muandane/saturdai/api/v1
+  version: v1
 version: "3"

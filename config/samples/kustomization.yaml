@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- autosize_v1_workloadprofile.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
