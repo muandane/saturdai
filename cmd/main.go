@@ -41,6 +41,7 @@ import (
 	autosizev1 "github.com/muandane/saturdai/api/v1"
 	"github.com/muandane/saturdai/internal/changepoint"
 	"github.com/muandane/saturdai/internal/controller"
+	"github.com/muandane/saturdai/internal/dashboard"
 	"github.com/muandane/saturdai/internal/defaults"
 	"github.com/muandane/saturdai/internal/kubelet"
 	"github.com/muandane/saturdai/internal/mlstate"
@@ -73,6 +74,8 @@ func main() {
 	var tlsOpts []func(*tls.Config)
 	var defaultsCMNamespace, defaultsCMName string
 	var defaultsReload time.Duration
+	var dashboardEnabled bool
+	var dashboardBindAddr string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -96,6 +99,10 @@ func main() {
 		"Name of the global defaults ConfigMap (empty disables loading)")
 	flag.DurationVar(&defaultsReload, "defaults-reload-interval", time.Minute,
 		"How often to reload the global defaults ConfigMap")
+	flag.BoolVar(&dashboardEnabled, "dashboard-enabled", false,
+		"Serve embedded WorkloadProfile dashboard + JSON API over HTTP (not TLS; use port-forward or policy).")
+	flag.StringVar(&dashboardBindAddr, "dashboard-bind-address", ":8090",
+		"TCP address for the dashboard HTTP server when --dashboard-enabled is set.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -243,6 +250,17 @@ func main() {
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		setupLog.Error(err, "Failed to set up ready check")
 		os.Exit(1)
+	}
+
+	if dashboardEnabled {
+		if err := mgr.Add(&dashboard.Server{
+			Log:    setupLog.WithName("dashboard"),
+			Client: mgr.GetClient(),
+			Addr:   dashboardBindAddr,
+		}); err != nil {
+			setupLog.Error(err, "Failed to add dashboard server")
+			os.Exit(1)
+		}
 	}
 
 	setupLog.Info("Starting manager")

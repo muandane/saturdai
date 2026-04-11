@@ -1,0 +1,14 @@
+# Optional JSON6902 patch: dashboard HTTP server on :8090 (plain HTTP).
+# Add to kustomization.yaml `patches` with target kind Deployment (same style as manager_metrics_patch.yaml).
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --dashboard-enabled=true
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --dashboard-bind-address=:8090
+- op: add
+  path: /spec/template/spec/containers/0/ports/-
+  value:
+    containerPort: 8090
+    name: dashboard
+    protocol: TCP
