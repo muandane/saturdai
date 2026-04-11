@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
@@ -72,20 +71,22 @@ func (l *GlobalDefaultsLoader) Start(ctx context.Context) error {
 		return nil
 	}
 	logger := log.FromContext(ctx).WithValues("component", "global-defaults-loader")
+	ctx = log.IntoContext(ctx, logger)
 	t := time.NewTicker(l.interval)
 	defer t.Stop()
-	l.reload(ctx, logger)
+	l.reload(ctx)
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-t.C:
-			l.reload(ctx, logger)
+			l.reload(ctx)
 		}
 	}
 }
 
-func (l *GlobalDefaultsLoader) reload(ctx context.Context, logger logr.Logger) {
+func (l *GlobalDefaultsLoader) reload(ctx context.Context) {
+	logger := log.FromContext(ctx)
 	cm := &corev1.ConfigMap{}
 	err := l.client.Get(ctx, types.NamespacedName{Namespace: l.namespace, Name: l.name}, cm)
 	if err != nil {

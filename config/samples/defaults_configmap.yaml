@@ -1,9 +1,0 @@
-# Optional global defaults (LLD-120). Controller may watch this in a future iteration.
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: autosize-defaults
-  namespace: saturdai-system
-data:
-  collectionIntervalSeconds: "30"
-  cooldownMinutes: "15"

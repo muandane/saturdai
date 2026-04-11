@@ -1,4 +1,7 @@
 // Package webhook implements mutating admission for Pods (LLD-110).
+//
+// +kubebuilder:rbac:groups=apps,resources=replicasets,verbs=get
+// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;watch
 package webhook
 
 import (
@@ -22,6 +25,8 @@ const (
 	annoInject          = "autosize.io/inject"
 	valDisabled         = "disabled"
 	valForce            = "force"
+
+	appsAPIVersion = "apps/v1"
 )
 
 // PodMutator injects resources on Pod create from WorkloadProfile status or global defaults.
@@ -152,20 +157,20 @@ func applyGlobalDefaults(c *corev1.Container, gd *defaults.GlobalResourceDefault
 func (m *PodMutator) resolveWorkload(ctx context.Context, pod *corev1.Pod) (kind, name string, ok bool) {
 	ns := pod.Namespace
 	for _, ref := range pod.OwnerReferences {
-		if ref.APIVersion == "apps/v1" && ref.Kind == "ReplicaSet" {
+		if ref.APIVersion == appsAPIVersion && ref.Kind == "ReplicaSet" {
 			rs := &appsv1.ReplicaSet{}
 			if err := m.Client.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ns}, rs); err != nil {
 				return "", "", false
 			}
 			for i := range rs.OwnerReferences {
 				p := &rs.OwnerReferences[i]
-				if p.APIVersion == "apps/v1" && p.Kind == "Deployment" {
+				if p.APIVersion == appsAPIVersion && p.Kind == "Deployment" {
 					return "Deployment", p.Name, true
 				}
 			}
 			return "", "", false
 		}
-		if ref.APIVersion == "apps/v1" && ref.Kind == "StatefulSet" {
+		if ref.APIVersion == appsAPIVersion && ref.Kind == "StatefulSet" {
 			return "StatefulSet", ref.Name, true
 		}
 	}

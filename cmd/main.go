@@ -42,8 +42,8 @@ import (
 	"github.com/muandane/saturdai/internal/controller"
 	"github.com/muandane/saturdai/internal/defaults"
 	"github.com/muandane/saturdai/internal/kubelet"
-	podwebhook "github.com/muandane/saturdai/internal/webhook"
 	"github.com/muandane/saturdai/internal/target"
+	podwebhook "github.com/muandane/saturdai/internal/webhook"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -210,7 +210,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	defaultsLoader := defaults.NewGlobalDefaultsLoader(mgr.GetClient(), defaultsCMNamespace, defaultsCMName, defaultsReload)
+	defaultsLoader := defaults.NewGlobalDefaultsLoader(
+		mgr.GetClient(),
+		defaultsCMNamespace,
+		defaultsCMName,
+		defaultsReload,
+	)
 	if err := mgr.Add(defaultsLoader); err != nil {
 		setupLog.Error(err, "Failed to add global defaults loader")
 		os.Exit(1)

@@ -18,6 +18,7 @@ The reconciler resolves `spec.targetRef` to a workload, lists pods, pulls kubele
 - Docker (for image build)
 - `kubectl` aligned with your cluster
 - A Kubernetes cluster
+- [cert-manager](https://cert-manager.io/docs/installation/) (required for mutating webhook TLS in the default `config/default` bundle)
 
 ### Build and test (local)
 
@@ -48,13 +49,23 @@ make install
 make deploy IMG=<registry>/saturdai:tag
 ```
 
+The default kustomize bundle enables the **Pod mutating admission webhook** and a **cert-manager** `Certificate` for webhook TLS. Ensure cert-manager is installed first; the webhook uses `failurePolicy: Ignore` so scheduling still works if the webhook is unavailable.
+
+**Apply global defaults (optional, used as fallback when no `WorkloadProfile` recommendation applies):**
+
+```sh
+kubectl apply -f config/samples/autosize_global_defaults_configmap.yaml
+```
+
+The manager is configured with `--defaults-configmap-namespace=saturdai-system` and `--defaults-configmap-name=autosize-global-defaults` (see [`config/manager/manager.yaml`](config/manager/manager.yaml)).
+
 **Apply a sample `WorkloadProfile`:**
 
 ```sh
 kubectl apply -k config/samples/
 ```
 
-Samples use `apiVersion: autosize.saturdai.auto/v1`. Optional global defaults ConfigMap example: [`config/samples/defaults_configmap.yaml`](config/samples/defaults_configmap.yaml) (apply to a namespace you create first).
+Samples use `apiVersion: autosize.saturdai.auto/v1`.
 
 ### Actuation
 

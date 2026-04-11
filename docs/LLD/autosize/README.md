@@ -15,7 +15,8 @@ Low-level designs for the deterministic autosizing controller. Requirements: [au
 | Recommendations | [`internal/recommend`](../../../internal/recommend) |
 | Safety | [`internal/safety`](../../../internal/safety) |
 | Actuation (PATCH) | [`internal/actuate`](../../../internal/actuate) |
-| Spec defaults (in-process) | [`internal/defaults`](../../../internal/defaults) |
+| Spec defaults (in-process + ConfigMap) | [`internal/defaults`](../../../internal/defaults) |
+| Pod admission webhook | [`internal/webhook`](../../../internal/webhook) |
 
 ## Status and tracking
 
@@ -32,8 +33,8 @@ Low-level designs for the deterministic autosizing controller. Requirements: [au
 | 080 | [Observe reconcile](./080-observe-reconcile.md) | Core | implemented | autosize-080 |
 | 090 | [Actuation](./090-actuation.md) | Core | implemented | autosize-090 |
 | 100 | [Packaging and RBAC](./100-packaging-rbac.md) | Core | implemented | autosize-100 |
-| 110 | [Admission webhook](./110-admission-webhook.md) | Admission | draft | autosize-110 |
-| 120 | [Global defaults ConfigMap](./120-global-defaults-configmap.md) | Admission | partial | autosize-120 |
+| 110 | [Admission webhook](./110-admission-webhook.md) | Admission | implemented | autosize-110 |
+| 120 | [Global defaults ConfigMap](./120-global-defaults-configmap.md) | Admission | implemented | autosize-120 |
 | 200 | [DRA integration](./200-dra-integration.md) | Future | stub | autosize-200 |
 | 300 | [Node-aware optimization](./300-node-aware-optimization.md) | Future | stub | autosize-300 |
 | 400 | [Time-based patterns](./400-time-based-patterns.md) | Future | stub | autosize-400 |

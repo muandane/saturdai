@@ -89,10 +89,8 @@ func Apply(
 
 	cooldown := time.Duration(defaults.Cooldown(profile.Spec)) * time.Minute
 
-	shouldPatch := true
-	if profile.Status.LastApplied != nil && now.Sub(profile.Status.LastApplied.Time) < cooldown {
-		shouldPatch = false
-	}
+	shouldPatch := profile.Status.LastApplied == nil || now.Sub(profile.Status.LastApplied.Time) >= cooldown
+
 	for _, t := range sig.LastOOMKill {
 		if t != nil && now.Sub(t.Time) < 10*time.Minute {
 			shouldPatch = true

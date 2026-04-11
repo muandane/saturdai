@@ -1,0 +1,23 @@
+# Self-signed issuer and TLS certificate for the webhook service (cert-manager required in cluster).
+# See https://cert-manager.io/docs/installation/
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned-issuer
+  namespace: system
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: serving-cert
+  namespace: system
+spec:
+  dnsNames:
+    - saturdai-webhook-service.saturdai-system.svc
+    - saturdai-webhook-service.saturdai-system.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: selfsigned-issuer
+  secretName: webhook-server-cert
