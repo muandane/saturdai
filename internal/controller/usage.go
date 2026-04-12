@@ -28,7 +28,7 @@ func collectUsageBreakdown(summaries map[string]*kubelet.Summary, ns string, pod
 		cpuN, memN     int
 	}
 	byNode := map[string]*acc{}
-	podCounts = map[string]int{}
+	podCounts := map[string]int{}
 
 	for _, pod := range pods {
 		if pod.Namespace != ns || pod.Spec.NodeName == "" {
