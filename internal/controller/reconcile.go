@@ -175,7 +175,7 @@ func (r *WorkloadProfileReconciler) runObserveAndActuate(
 	for _, cname := range tplNames {
 		st := byName[cname]
 
-		perNode, _, cpuMilli, memBytes, throttled, usage := collectUsageBreakdown(summaries, ns, pods, cname)
+		perNode, cpuMilli, memBytes, throttled, usage := collectUsageBreakdown(summaries, ns, pods, cname)
 		if h := cpuHeteroScore(perNode); h > maxHetero {
 			maxHetero = h
 		}

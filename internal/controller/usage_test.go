@@ -51,7 +51,7 @@ func TestCollectUsageBreakdown_weightedMeanTwoPodsOneNode(t *testing.T) {
 		{ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: ns}, Spec: corev1.PodSpec{NodeName: "node-a"}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "p2", Namespace: ns}, Spec: corev1.PodSpec{NodeName: "node-a"}},
 	}
-	perNode, _, cpuMean, memMean, _, _ := collectUsageBreakdown(summaries, ns, pods, "app")
+	perNode, cpuMean, memMean, _, _ := collectUsageBreakdown(summaries, ns, pods, "app")
 	if len(perNode) != 1 {
 		t.Fatalf("perNode: %v", perNode)
 	}

@@ -18,7 +18,6 @@ type nodeUsageSample struct {
 // collectUsageBreakdown aggregates kubelet stats per node and workload-level means weighted by pod count.
 func collectUsageBreakdown(summaries map[string]*kubelet.Summary, ns string, pods []corev1.Pod, container string) (
 	perNode map[string]nodeUsageSample,
-	podCounts map[string]int,
 	cpuMilliMean float64,
 	memBytesMean float64,
 	throttled uint64,
@@ -96,7 +95,7 @@ func collectUsageBreakdown(summaries map[string]*kubelet.Summary, ns string, pod
 		cpuMilliMean = cpuWeighted / float64(totalPods)
 		memBytesMean = memWeighted / float64(totalPods)
 	}
-	return perNode, podCounts,
+	return perNode,
 		aggregate.FiniteOrZero(cpuMilliMean),
 		aggregate.FiniteOrZero(memBytesMean),
 		throttled, usage
