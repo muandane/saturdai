@@ -169,16 +169,20 @@ func (r *WorkloadProfileReconciler) runObserveAndActuate(
 
 	byName := indexContainerStatus(profile.Status.Containers)
 	var anySpike bool
+	var maxHetero float64
 	forecasts := make(map[string]struct{ CPU, Mem float64 }, len(tplNames))
 	for _, cname := range tplNames {
 		st := byName[cname]
 
-		cpuMilli, memBytes, throttled, usage := collectUsageForContainer(summaries, ns, pods, cname)
+		perNode, _, cpuMilli, memBytes, throttled, usage := collectUsageBreakdown(summaries, ns, pods, cname)
+		if h := cpuHeteroScore(perNode); h > maxHetero {
+			maxHetero = h
+		}
 		if throttled > 0 && usage > 0 {
 			sig.SetThrottleRatio(cname, throttled, usage)
 		}
 
-		fCPU, fMem, err := r.ingestContainerMetrics(logger, profile, mlState, &st, cname, cpuMilli, memBytes)
+		fCPU, fMem, err := r.ingestContainerMetrics(logger, profile, mlState, &st, cname, cpuMilli, memBytes, perNode)
 		if err != nil {
 			return nil, err
 		}
@@ -200,6 +204,20 @@ func (r *WorkloadProfileReconciler) runObserveAndActuate(
 		byName[cname] = st
 	}
 
+	nodeSet := map[string]struct{}{}
+	for i := range pods {
+		if pods[i].Namespace != ns || pods[i].Spec.NodeName == "" {
+			continue
+		}
+		nodeSet[pods[i].Spec.NodeName] = struct{}{}
+	}
+	bpAt := metav1.NewTime(r.now())
+	profile.Status.BinPacking = &autosizev1.BinPackingHints{
+		HeteroScore: maxHetero,
+		NodeCount:   int32(len(nodeSet)),
+		ObservedAt:  &bpAt,
+	}
+
 	pruneMLState(mlState, tplNames)
 
 	profile.Status.Containers = flattenContainerStatus(byName, tplNames)
@@ -211,7 +229,7 @@ func (r *WorkloadProfileReconciler) runObserveAndActuate(
 	var recs []autosizev1.Recommendation
 	for _, cname := range tplNames {
 		st := byName[cname]
-		cpuSketch, memSketch := loadSketches(&st)
+		cpuSketch, memSketch := loadSketchesForRecommend(&st)
 		quad := utcQuadrantIndex(r.now())
 		quadCPU, _ := aggregate.SketchFromBase64(quadSketchGet(st.Stats.CPU.QuadrantSketches, quad))
 		quadMem, _ := aggregate.SketchFromBase64(quadSketchGet(st.Stats.Memory.QuadrantSketches, quad))
@@ -309,56 +327,34 @@ func flattenContainerStatus(byName map[string]autosizev1.ProfileContainerStatus,
 	return out
 }
 
-func loadSketches(st *autosizev1.ProfileContainerStatus) (*ddsketch.DDSketch, *ddsketch.DDSketch) {
+func loadSketchesForRecommend(st *autosizev1.ProfileContainerStatus) (*ddsketch.DDSketch, *ddsketch.DDSketch) {
+	cpuEnc, memEnc := sketchBase64sFromNodes(st)
 	cpu, _ := aggregate.SketchFromBase64(st.Stats.CPU.Sketch)
 	mem, _ := aggregate.SketchFromBase64(st.Stats.Memory.Sketch)
+	if len(cpuEnc) > 0 {
+		if merged, err := aggregate.MergeSketchesFromBase64(cpuEnc); err == nil && merged != nil && !merged.IsEmpty() {
+			cpu = merged
+		}
+	}
+	if len(memEnc) > 0 {
+		if merged, err := aggregate.MergeSketchesFromBase64(memEnc); err == nil && merged != nil && !merged.IsEmpty() {
+			mem = merged
+		}
+	}
 	return cpu, mem
 }
 
-func collectUsageForContainer(summaries map[string]*kubelet.Summary, ns string, pods []corev1.Pod, container string) (cpuMilli float64, memBytes float64, throttled uint64, usage uint64) {
-	var cpuSum, memSum float64
-	var cpuN, memN int
-	var thr, use uint64
-	for _, pod := range pods {
-		if pod.Namespace != ns {
-			continue
+func sketchBase64sFromNodes(st *autosizev1.ProfileContainerStatus) (cpu, mem []string) {
+	for i := range st.Stats.NodeSketches {
+		e := st.Stats.NodeSketches[i]
+		if e.CPUSketch != "" {
+			cpu = append(cpu, e.CPUSketch)
 		}
-		sum := summaries[pod.Spec.NodeName]
-		if sum == nil {
-			continue
-		}
-		for _, ps := range sum.Pods {
-			if ps.PodRef.Namespace != pod.Namespace || ps.PodRef.Name != pod.Name {
-				continue
-			}
-			for _, cs := range ps.Containers {
-				if cs.Name != container {
-					continue
-				}
-				if cs.CPU != nil && cs.CPU.UsageNanoCores != nil {
-					cpuSum += float64(*cs.CPU.UsageNanoCores) / 1e6
-					cpuN++
-					if cs.CPU.ThrottledUsageNanoCores != nil {
-						thr += *cs.CPU.ThrottledUsageNanoCores
-					}
-					if cs.CPU.UsageNanoCores != nil {
-						use += *cs.CPU.UsageNanoCores
-					}
-				}
-				if cs.Memory != nil && cs.Memory.WorkingSetBytes != nil {
-					memSum += float64(*cs.Memory.WorkingSetBytes)
-					memN++
-				}
-			}
+		if e.MemSketch != "" {
+			mem = append(mem, e.MemSketch)
 		}
 	}
-	if cpuN > 0 {
-		cpuMilli = cpuSum / float64(cpuN)
-	}
-	if memN > 0 {
-		memBytes = memSum / float64(memN)
-	}
-	return aggregate.FiniteOrZero(cpuMilli), aggregate.FiniteOrZero(memBytes), thr, use
+	return
 }
 
 func currentResourcesFromTemplate(obj runtime.Object, names []string) (map[string]corev1.ResourceRequirements, error) {

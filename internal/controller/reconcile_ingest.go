@@ -9,7 +9,7 @@ import (
 	"github.com/muandane/saturdai/internal/mlstate"
 )
 
-// ingestContainerMetrics updates sketches, EMA, CUSUM, quadrant sketches, and HW for one container.
+// ingestContainerMetrics updates sketches, EMA, CUSUM, quadrant sketches, HW, and per-node sketches for one container.
 func (r *WorkloadProfileReconciler) ingestContainerMetrics(
 	log logr.Logger,
 	profile *autosizev1.WorkloadProfile,
@@ -17,6 +17,7 @@ func (r *WorkloadProfileReconciler) ingestContainerMetrics(
 	st *autosizev1.ProfileContainerStatus,
 	cname string,
 	cpuMilli, memBytes float64,
+	perNode map[string]nodeUsageSample,
 ) (forecastCPU, forecastMem float64, err error) {
 	st.Name = cname
 
@@ -82,6 +83,7 @@ func (r *WorkloadProfileReconciler) ingestContainerMetrics(
 		cu.CPU.Reset()
 		st.Stats.CPU.Sketch = ""
 		clearQuadrantSketches(&st.Stats.CPU.QuadrantSketches)
+		clearNodeSketchesCPU(st.Stats.NodeSketches)
 	}
 	if cu.Memory.Update(memBytes, memLongBefore, changepoint.DefaultMemConfig) {
 		if r.Detector != nil {
@@ -97,6 +99,7 @@ func (r *WorkloadProfileReconciler) ingestContainerMetrics(
 		cu.Memory.Reset()
 		st.Stats.Memory.Sketch = ""
 		clearQuadrantSketches(&st.Stats.Memory.QuadrantSketches)
+		clearNodeSketchesMem(st.Stats.NodeSketches)
 	}
 
 	utc := r.now().UTC()
@@ -130,6 +133,8 @@ func (r *WorkloadProfileReconciler) ingestContainerMetrics(
 	hour := utc.Hour()
 	forecastCPU = hw.CPU.Update(cpuMilli, hour)
 	forecastMem = hw.Memory.Update(memBytes, hour)
+
+	updateNodeSketches(log, st, perNode, r.now())
 
 	return forecastCPU, forecastMem, nil
 }

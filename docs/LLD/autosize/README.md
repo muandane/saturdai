@@ -36,7 +36,7 @@ Low-level designs for the deterministic autosizing controller. Requirements: [au
 | 110 | [Admission webhook](./110-admission-webhook.md) | Admission | implemented | autosize-110 |
 | 120 | [Global defaults ConfigMap](./120-global-defaults-configmap.md) | Admission | implemented | autosize-120 |
 | 200 | [DRA integration](./200-dra-integration.md) | Future | stub | autosize-200 |
-| 300 | [Node-aware optimization](./300-node-aware-optimization.md) | Future | stub | autosize-300 |
+| 300 | [Node-aware optimization](./300-node-aware-optimization.md) | Phase 4 | implemented | [#18](https://github.com/muandane/saturdai/issues/18) |
 | 400 | [Time-based patterns](./400-time-based-patterns.md) | Extensions + roadmap §15 | partial — UTC quadrants + HW shipped; Phase 5 deferred — see 400 | [#17](https://github.com/muandane/saturdai/issues/17) |
 
 ### Tracking issues

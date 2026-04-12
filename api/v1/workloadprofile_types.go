@@ -114,10 +114,44 @@ type MemoryStats struct {
 	SlopePositive bool `json:"slopePositive"`
 }
 
+// MaxNodeSketches caps per-container per-node sketch entries (etcd budget, LLD-300).
+const MaxNodeSketches = 32
+
+// NodeSketchEntry holds DDSketches for one node (Phase 4 / LLD-300).
+type NodeSketchEntry struct {
+	// NodeName is the Kubernetes node name.
+	// +kubebuilder:validation:MinLength=1
+	NodeName string `json:"nodeName"`
+	// LastSeen is when this node last had a scheduled pod for the workload (reconcile time).
+	// +optional
+	LastSeen *metav1.Time `json:"lastSeen,omitempty"`
+	// CPUSketch is base64-encoded DDSketch protobuf for CPU (millicore means on this node).
+	// +optional
+	CPUSketch string `json:"cpuSketch,omitempty"`
+	// MemSketch is base64-encoded DDSketch protobuf for memory (bytes).
+	// +optional
+	MemSketch string `json:"memSketch,omitempty"`
+}
+
+// BinPackingHints exposes read-only scheduling-adjacent signals (LLD-300). Does not mutate workloads.
+type BinPackingHints struct {
+	// HeteroScore is in [0,1]: cross-node CPU mean spread when nodeCount>=2; else 0.
+	HeteroScore float64 `json:"heteroScore,omitempty"`
+	// NodeCount is distinct nodes with scheduled pods for this reconcile.
+	NodeCount int32 `json:"nodeCount,omitempty"`
+	// ObservedAt is when hints were computed.
+	// +optional
+	ObservedAt *metav1.Time `json:"observedAt,omitempty"`
+}
+
 // ContainerResourceStats is observed stats for one logical container (pod template name).
 type ContainerResourceStats struct {
 	CPU    CPUStats    `json:"cpu"`
 	Memory MemoryStats `json:"memory"`
+	// NodeSketches holds per-node DDSketches (bounded). Omitted when empty.
+	// +kubebuilder:validation:MaxItems=32
+	// +optional
+	NodeSketches []NodeSketchEntry `json:"nodeSketches,omitempty"`
 	// +optional
 	LastOOMKill  *metav1.Time `json:"lastOOMKill,omitempty"`
 	RestartCount int32        `json:"restartCount"`
@@ -171,6 +205,10 @@ type WorkloadProfileStatus struct {
 	// DownsizePauseCyclesRemaining counts reconcile cycles where downsizing is blocked after a restart spike (delta > 3).
 	// +optional
 	DownsizePauseCyclesRemaining int32 `json:"downsizePauseCyclesRemaining,omitempty"`
+
+	// BinPacking carries read-only hints for external automation (LLD-300).
+	// +optional
+	BinPacking *BinPackingHints `json:"binPacking,omitempty"`
 
 	// conditions represent the current state of the WorkloadProfile resource.
 	// +listType=map
