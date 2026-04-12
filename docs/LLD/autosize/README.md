@@ -55,7 +55,7 @@ Use **one issue per LLD** (or one epic per phase with child issues). Suggested t
 | `[LLD-060] Recommendation engine (modes, percentiles)` | 060 |
 | `[LLD-070] Safety layer (cooldown, overrides, rationale)` | 070 |
 | `[LLD-080] Observe-only reconcile` | 080 |
-| `[LLD-085] Bulk target selection (namespace / labels / cluster-wide)` | 085 |
+| `[LLD-085] Bulk target selection` (`NamespaceProfile`, `ClusterProfile`, fan-out) | 085 |
 | `[LLD-090] Actuation (workload PATCH)` | 090 |
 | `[LLD-100] Packaging, RBAC, observability baseline` | 100 |
 | `[LLD-110] Admission webhook (cold-start inject)` | 110 |

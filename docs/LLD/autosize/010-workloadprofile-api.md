@@ -21,7 +21,7 @@ Define the `WorkloadProfile` CRD (`autosize.saturdai.auto/v1`): field semantics,
 ## Dependencies
 
 - **Upstream:** [000-doc-conventions.md](./000-doc-conventions.md), [autosize-controller-spec.md](../../spec/autosize-controller-spec.md)
-- **Downstream:** 020, 040, 060, 070, 080, 090, 100, 110, [085](./085-bulk-target-selection.md) (optional `targetSelector` / cluster kind — spec §4)
+- **Downstream:** 020, 040, 060, 070, 080, 090, 100, 110, [085](./085-bulk-target-selection.md) (`NamespaceProfile` / `ClusterProfile` fan-out — spec §4)
 
 ## Data model / API surface
 

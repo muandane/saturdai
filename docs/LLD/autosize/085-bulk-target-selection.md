@@ -2,14 +2,16 @@
 
 ## Purpose
 
-Define how autosizing policy can apply to **many** workloads: all matching workloads in a namespace, workloads selected by **labels**, and (optionally) **cluster-wide** selection across namespaces. Today ([020](./020-target-resolution.md)) one `WorkloadProfile` resolves to exactly one `Deployment` or `StatefulSet` by name in the profile’s namespace. This LLD specifies API shape, reconciliation semantics, conflict rules, RBAC, and migration so implementation can proceed without ad hoc one-off behavior.
+Define how autosizing policy can apply to **many** workloads: all matching workloads in a namespace, workloads selected by **labels**, and (optionally) **cluster-wide** selection across namespaces. One **`WorkloadProfile`** still resolves to exactly one `Deployment` or `StatefulSet` by name ([020](./020-target-resolution.md)); **bulk** selection is implemented as separate **`NamespaceProfile`** and **`ClusterProfile`** kinds that **fan out** child `WorkloadProfile` objects. This LLD specifies API shape, reconciliation semantics, conflict rules, RBAC, and migration.
+
+**Implemented in repo:** types [`api/v1/namespaceprofile_types.go`](../../../api/v1/namespaceprofile_types.go), [`api/v1/clusterprofile_types.go`](../../../api/v1/clusterprofile_types.go); reconcilers [`internal/controller/namespaceprofile_controller.go`](../../../internal/controller/namespaceprofile_controller.go), [`internal/controller/clusterprofile_controller.go`](../../../internal/controller/clusterprofile_controller.go); listing and conflicts [`internal/target`](../../../internal/target); samples [`config/samples/autosize_v1_namespaceprofile.yaml`](../../../config/samples/autosize_v1_namespaceprofile.yaml), [`config/samples/autosize_v1_clusterprofile.yaml`](../../../config/samples/autosize_v1_clusterprofile.yaml).
 
 ## Spec traceability
 
 | Spec § | Requirement (summary) |
 |--------|------------------------|
 | §2 | Included: Deployments, StatefulSets — bulk selection still **only** these kinds unless spec expands |
-| §4 | **Amendment:** `spec` must allow either named `targetRef` **or** a declared selection strategy (mutually exclusive); status/conditions must reflect multi-target or selector resolution |
+| §4 | **Amendment:** bulk selection uses **`NamespaceProfile`** / **`ClusterProfile`**; `WorkloadProfile` keeps a single `targetRef` (child objects from fan-out). Parent status exposes selector resolution and conflicts. |
 | §10 | `resolveTarget` becomes `resolveTargets` (list) or equivalent — reconcile only after target set known |
 | §16 | No direct Pod mutation — selection resolves to parent workloads only |
 

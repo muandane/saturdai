@@ -22,7 +22,7 @@ Specify how a `WorkloadProfile` resolves to a live `Deployment` or `StatefulSet`
 ## Dependencies
 
 - **Upstream:** [010-workloadprofile-api.md](./010-workloadprofile-api.md)
-- **Related (future):** [085-bulk-target-selection.md](./085-bulk-target-selection.md) — extends resolution to selector-based and cluster-wide targets
+- **Related:** [085-bulk-target-selection.md](./085-bulk-target-selection.md) — selector-based resolution via **`NamespaceProfile`** / **`ClusterProfile`** fan-out to child `WorkloadProfile` objects (`internal/target`, `internal/controller`)
 - **Downstream:** 030, 080, 090
 
 ## Data model / API surface

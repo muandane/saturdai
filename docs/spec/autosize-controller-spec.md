@@ -88,6 +88,8 @@ flowchart LR
   Safety --> Patch[patch_target]
 ```
 
+**Bulk policy:** `NamespaceProfile` and `ClusterProfile` controllers resolve Deployments/StatefulSets and ensure **child `WorkloadProfile`** objects exist; the diagram above applies **per child** `WorkloadProfile`, not to the parent selector CRs.
+
 ---
 
 ## 4. Custom Resource Definition
