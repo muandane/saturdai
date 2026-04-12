@@ -1,0 +1,116 @@
+# Publishes the manager image and Helm chart to GitHub Container Registry.
+#
+# Image:  ghcr.io/muandane/saturdai:<version>  (+ :latest on git tags v*)
+# Chart:  oci://ghcr.io/muandane/saturdai-helm (chart name: saturdai)
+#
+# Triggers:
+#   - Push tag v* (e.g. v0.2.0) — syncs Chart.yaml from tag, pushes image + chart
+#   - workflow_dispatch — optional "version" to bump Chart.yaml; else use committed dist/chart
+#
+# Example install:
+#   helm install saturdai oci://ghcr.io/muandane/saturdai-helm/saturdai \
+#     --version <chart-version> \
+#     --set manager.image.repository=ghcr.io/muandane/saturdai \
+#     --set manager.image.tag=<same-as-release>
+
+name: Publish image and Helm chart to GHCR
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Chart/app version (e.g. 0.2.0). Empty = use dist/chart/Chart.yaml as-is."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-ghcr-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: muandane/saturdai
+  CHART_OCI_PREFIX: oci://ghcr.io/muandane/saturdai-helm
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set version
+        id: ver
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          elif [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="$(grep '^version:' dist/chart/Chart.yaml | awk '{print $2}')"
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "Using version: ${VERSION}"
+
+      - name: Sync Chart.yaml from release version
+        if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && github.event.inputs.version != '')
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          sed -i "s/^version:.*/version: ${VERSION}/" dist/chart/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" dist/chart/Chart.yaml
+
+      - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Compute Docker tags
+        id: docker-tags
+        run: |
+          REG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          V="${{ steps.ver.outputs.version }}"
+          {
+            echo "tags<<EOF"
+            echo "${REG}:${V}"
+            if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+              echo "${REG}:latest"
+            fi
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.docker-tags.outputs.tags }}
+
+      - uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+        with:
+          version: v3.16.2
+
+      - run: helm lint dist/chart
+
+      - name: Package Helm chart
+        id: helm-pkg
+        run: |
+          helm package dist/chart --destination .
+          PKG="$(ls -1 saturdai-*.tgz | head -1)"
+          echo "package=${PKG}" >> "${GITHUB_OUTPUT}"
+
+      - name: Helm registry login
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "${{ env.REGISTRY }}" \
+            -u "${{ github.actor }}" --password-stdin
+
+      - name: Push Helm chart
+        run: helm push "${{ steps.helm-pkg.outputs.package }}" "${{ env.CHART_OCI_PREFIX }}"
