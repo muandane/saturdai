@@ -53,6 +53,24 @@ func Update(s ResourceSample) error {
 	return nil
 }
 
+// UpdateSketchOnly appends one sample to a DDSketch without updating EMA (per-node sketches, LLD-300).
+func UpdateSketchOnly(s ResourceSample) error {
+	val := FiniteOrZero(s.Value)
+	sk, err := decodeSketch(s.GetSketch())
+	if err != nil {
+		return err
+	}
+	if err := sk.Add(val); err != nil && s.OnAddError != nil {
+		s.OnAddError(err)
+	}
+	encoded, err := SketchToBase64(sk)
+	if err != nil {
+		return err
+	}
+	s.SetSketch(encoded)
+	return nil
+}
+
 func sanitizeEMA(short, long float64) (float64, float64) {
 	return FiniteOrZero(short), FiniteOrZero(long)
 }

@@ -173,13 +173,30 @@ status:
 
 Learned JSON (**CUSUM**, **feedback**, **Holt–Winters**) is **not** shown above; it lives in ConfigMap `mlstate-my-app` in the same namespace (key `state`, see §6).
 
+### Bulk target selection (not yet in generated CRD schema)
+
+**Engineering detail:** [LLD-085](../LLD/autosize/085-bulk-target-selection.md). *Implementation status:* [implementation-status.md](../implementation-status.md).
+
+When shipped, `spec` uses **exactly one** of:
+
+| Mode | Semantics |
+|------|-----------|
+| **Named ref** | Current shape: `targetRef` names one `Deployment` or `StatefulSet` in the **same namespace** as the `WorkloadProfile`. |
+| **Selector** | `targetSelector` lists `Deployment` / `StatefulSet` objects in that namespace by **labels**, and/or an **explicit opt-in** to select every such workload in the namespace (high blast radius — must be gated in API validation). |
+
+**Cluster-wide** selection (namespaces + labels) may be a **separate cluster-scoped kind** or an extended schema; see LLD-085 options A/B.
+
+**Conflicts:** If two profiles would manage the same workload via overlapping selectors, the default policy is **deny**: surface failure (e.g. `TargetResolved=False` or a dedicated condition) and **do not** actuate until resolved — see LLD-085.
+
+**Invariants:** Selection resolves only to **parent workloads** (`Deployment` / `StatefulSet`), never to Pods directly (§16). Reconcile may **fan out** to multiple internal or child profiles; kubelet and aggregate behavior stay per workload.
+
 ### Status conditions
 
 `status.conditions` (Kubernetes-style) include at least:
 
 | Type | True when |
 |------|-----------|
-| `TargetResolved` | The referenced Deployment/StatefulSet exists and was resolved |
+| `TargetResolved` | Named `targetRef`: the referenced Deployment/StatefulSet exists and was resolved. Selector path (when implemented): at least one matching workload exists **and** selector conflict policy is satisfied — see [LLD-085](../LLD/autosize/085-bulk-target-selection.md). |
 | `MetricsAvailable` | Kubelet stats were collected for this evaluation cycle when required (pods scheduled to nodes), and aggregates/recommendations were updated |
 | `ProfileReady` | `TargetResolved` **and** `MetricsAvailable` are both True |
 
@@ -241,7 +258,7 @@ Library: `github.com/DataDog/sketches-go/ddsketch`
 
 - Bounded memory (~1KB per metric at 1% relative accuracy)
 - Serializes to protobuf → **base64** in `status.containers[].stats.*.sketch`
-- Mergeable (useful later for node-level aggregation)
+- Mergeable: `(*ddsketch.DDSketch).MergeWith` combines sketches for the same relative-accuracy default mapping (see LLD-300).
 
 ```go
 import "github.com/DataDog/sketches-go/ddsketch"
@@ -251,6 +268,13 @@ sketch.Add(sampleValue)
 bytes, _ := sketch.ToProto().Marshal()
 encoded := base64.StdEncoding.EncodeToString(bytes)
 ```
+
+### Phase 4 — Per-node sketches and bin-packing hints (shipped)
+
+- **`status.containers[].stats.nodeSketches`:** bounded list (max **32**) of `{ nodeName, lastSeen, cpuSketch, memSketch }` — each sketch is base64 DDSketch for **per-node** mean usage of that container (pods on that node averaged per reconcile).
+- **Workload-level mean** (mean of per-node values, equivalent to averaging across pods) remains the single sample for **global** CPU/memory sketches, **EMA**, **CUSUM**, **quadrant** buckets, and **Holt–Winters** — same time series as pre–Phase 4.
+- **Recommendations (§8):** percentile queries use **merged** per-node CPU/memory sketches when at least one `nodeSketches` entry exists; otherwise **global** sketches. Quadrant override (§6) still applies when the active quadrant sketch has enough samples.
+- **`status.binPacking`:** read-only hints (`heteroScore`, `nodeCount`, `observedAt`) for external automation; does not mutate pods or scheduler config. See [`LLD-300`](../LLD/autosize/300-node-aware-optimization.md).
 
 ### CRD `status` shapes (per container)
 
@@ -278,12 +302,13 @@ type MemoryStats struct {
 type ContainerResourceStats struct {
     CPU          CPUStats     `json:"cpu"`
     Memory       MemoryStats  `json:"memory"`
+    NodeSketches []NodeSketchEntry `json:"nodeSketches,omitempty"` // max 32; Phase 4
     LastOOMKill  *metav1.Time `json:"lastOOMKill,omitempty"`
     RestartCount int32        `json:"restartCount"`
 }
 ```
 
-**Estimated CRD size**: order of tens of KB for many containers. Well within etcd limits.
+**Estimated CRD size**: order of tens of KB for many containers; per-node list capped at 32 nodes. Well within etcd limits.
 
 ### UTC quadrant sketches (CRD `status`)
 
@@ -316,7 +341,7 @@ type ContainerResourceStats struct {
 
 ## 7. Statistical Model
 
-Percentile targets (§8) read from the **global** or **quadrant** DDSketch per §6. **Holt–Winters forecasts** (when warm) and **feedback bias** adjust recommendation inputs in code paths documented in `internal/recommend`.
+Percentile targets (§8) read from the **merged per-node** CPU/memory sketches when `nodeSketches` is non-empty; otherwise the **global** sketch; **quadrant** override applies per §6 when the active quadrant sketch has enough samples. **Holt–Winters forecasts** (when warm) and **feedback bias** adjust recommendation inputs in code paths documented in `internal/recommend`.
 
 ### Prediction
 
@@ -460,6 +485,8 @@ func (r *WorkloadProfileReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 //  - return nil, nil to use default RequeueAfter(interval)
 ```
 
+**Bulk selection (future):** If `spec` uses a selector instead of a single `targetRef`, the controller resolves **one or more** workloads before listing pods and collecting metrics ([LLD-085](../LLD/autosize/085-bulk-target-selection.md)). The loop above applies **per resolved target** (or per fan-out `WorkloadProfile`), including actuation and `mlstate-*` naming rules.
+
 ---
 
 ## 11. Mutation Strategy
@@ -557,6 +584,8 @@ No Prometheus. No VPA. **No external observability database** — optional **in-
 - Safety mechanisms
 - Deployment/StatefulSet patching
 
+**Planned extension (not yet in generated CRD):** [Bulk target selection](../LLD/autosize/085-bulk-target-selection.md) — namespace / label / cluster-wide policy; spec §4; status [implementation-status.md](../implementation-status.md).
+
 ### Phase 2 — Admission Webhook
 
 - Cold-start default injection
@@ -571,8 +600,9 @@ No Prometheus. No VPA. **No external observability database** — optional **in-
 
 ### Phase 4 — Node-Aware Optimization
 
-- Aggregate DDSketches across nodes
-- Bin-packing hints for scheduler
+- **Per-node DDSketches** in `status` (bounded), merged for percentile-based recommendations (**§6 Phase 4**).
+- **Bin-packing hints** in `status.binPacking` (read-only JSON for operators / external tooling; **not** core scheduler API or DRA).
+- Implementation: [`LLD-300`](../LLD/autosize/300-node-aware-optimization.md), [`implementation-status.md`](../implementation-status.md).
 
 ### Phase 5 — Time-Based Patterns
 
@@ -602,5 +632,6 @@ No Prometheus. No VPA. **No external observability database** — optional **in-
 | §2 Extensions, §6 learned pipeline | `internal/mlstate`, `internal/changepoint`, `internal/aggregate/holtwinters.go`, `internal/recommend/feedback.go`, `internal/controller/reconcile_ingest.go` |
 | Collection interval / requeue | `internal/defaults/defaults.go`, `internal/controller/reconcile.go` (`requeueAfter`, `metricsRequeueAfter`) |
 | Quadrant selection / min count | `internal/controller/reconcile.go`, `internal/recommend/recommend.go` |
+| §6 Phase 4 per-node sketches, `binPacking` | `internal/controller/reconcile.go`, `internal/controller/usage.go`, `internal/controller/node_sketches.go`, `internal/aggregate/merge.go` |
 | Status API | `api/v1/workloadprofile_types.go`, generated CRD in `config/crd/bases/` |
 | Shipped feature inventory | [`docs/implementation-status.md`](../implementation-status.md) |

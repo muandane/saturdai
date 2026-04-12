@@ -31,12 +31,13 @@ Low-level designs for the deterministic autosizing controller. Requirements: [au
 | 060 | [Recommendation engine](./060-recommendation-engine.md) | Core | implemented | autosize-060 |
 | 070 | [Safety layer](./070-safety-layer.md) | Core | implemented | autosize-070 |
 | 080 | [Observe reconcile](./080-observe-reconcile.md) | Core | implemented | autosize-080 |
+| 085 | [Bulk target selection](./085-bulk-target-selection.md) | Core | draft | autosize-085 |
 | 090 | [Actuation](./090-actuation.md) | Core | implemented | autosize-090 |
 | 100 | [Packaging and RBAC](./100-packaging-rbac.md) | Core | implemented | autosize-100 |
 | 110 | [Admission webhook](./110-admission-webhook.md) | Admission | implemented | autosize-110 |
 | 120 | [Global defaults ConfigMap](./120-global-defaults-configmap.md) | Admission | implemented | autosize-120 |
 | 200 | [DRA integration](./200-dra-integration.md) | Future | stub | autosize-200 |
-| 300 | [Node-aware optimization](./300-node-aware-optimization.md) | Future | stub | autosize-300 |
+| 300 | [Node-aware optimization](./300-node-aware-optimization.md) | Phase 4 | implemented | [#18](https://github.com/muandane/saturdai/issues/18) |
 | 400 | [Time-based patterns](./400-time-based-patterns.md) | Extensions + roadmap §15 | partial — UTC quadrants + HW shipped; Phase 5 deferred — see 400 | [#17](https://github.com/muandane/saturdai/issues/17) |
 
 ### Tracking issues
@@ -54,6 +55,7 @@ Use **one issue per LLD** (or one epic per phase with child issues). Suggested t
 | `[LLD-060] Recommendation engine (modes, percentiles)` | 060 |
 | `[LLD-070] Safety layer (cooldown, overrides, rationale)` | 070 |
 | `[LLD-080] Observe-only reconcile` | 080 |
+| `[LLD-085] Bulk target selection (namespace / labels / cluster-wide)` | 085 |
 | `[LLD-090] Actuation (workload PATCH)` | 090 |
 | `[LLD-100] Packaging, RBAC, observability baseline` | 100 |
 | `[LLD-110] Admission webhook (cold-start inject)` | 110 |
@@ -87,6 +89,7 @@ flowchart TB
   rec[060 Recommendations]
   safe[070 Safety]
   obs[080 Observe reconcile]
+  bulk[085 Bulk target selection]
   act[090 Actuation]
   pkg[100 Packaging]
   wh[110 Webhook]
@@ -94,8 +97,11 @@ flowchart TB
   spec --> api
   c0 --> api
   api --> tgt
+  api --> bulk
+  tgt --> bulk
   api --> agg
   tgt --> kube
+  bulk --> obs
   tgt --> obs
   kube --> obs
   agg --> rec

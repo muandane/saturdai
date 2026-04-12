@@ -4,7 +4,7 @@
 **LLD index:** [LLD/autosize/README.md](./LLD/autosize/README.md)  
 **GitHub:** [muandane/saturdai](https://github.com/muandane/saturdai) — tracking issues use `[#NN](https://github.com/muandane/saturdai/issues/NN)` in **Issue** columns below.
 
-Last reviewed: 2026-04-11 — includes learned-state pipeline (ConfigMap `mlstate-*`, CUSUM, feedback bias, quadrant sketches, Holt–Winters forecasts), kubelet-all-fail `MetricsAvailable=False` + `ProfileReady` composite condition ([#12](https://github.com/muandane/saturdai/issues/12)).
+Last reviewed: 2026-04-12 — Phase 4 per-node sketches + merged quantiles + `status.binPacking` hints ([#18](https://github.com/muandane/saturdai/issues/18)); includes learned-state pipeline (ConfigMap `mlstate-*`, CUSUM, feedback bias, quadrant sketches, Holt–Winters forecasts), kubelet-all-fail `MetricsAvailable=False` + `ProfileReady` composite condition ([#12](https://github.com/muandane/saturdai/issues/12)).
 
 ## Legend
 
@@ -39,6 +39,7 @@ Last reviewed: 2026-04-11 — includes learned-state pipeline (ConfigMap `mlstat
 | Reconcile loop, status update | §10, 080 | Done | `internal/controller/reconcile.go` |
 | Actuation: PATCH workload template | §11, 090 | Done | `internal/actuate`; gated by `AUTOSIZE_ACTUATION=true` |
 | RBAC / packaging baseline | 100 | Done | `config/rbac`, samples |
+| Bulk target selection (namespace / labels / cluster-wide) | §4, §10, [085](./LLD/autosize/085-bulk-target-selection.md) | Not started | Spec §4 + §10 describe intent; CRD/API still single `targetRef` only — tracking: `autosize-085` ([LLD index](./LLD/autosize/README.md)) |
 
 ## Learned state & heuristics (post-MVP)
 
@@ -66,7 +67,7 @@ Last reviewed: 2026-04-11 — includes learned-state pipeline (ConfigMap `mlstat
 | Item | LLD | Status | Notes | Issue |
 |------|-----|--------|-------|-------|
 | DRA integration | 200 | N/A — stub | | — |
-| Node-aware sketches / bin-packing | 300 | N/A — stub | | — |
+| Node-aware sketches / bin-packing | 300 | Done | Per-node `nodeSketches` (max 32), `MergeWith` for recommend quantiles; `status.binPacking`; EMA/CUSUM/quadrant/HW stay on workload mean | [#18](https://github.com/muandane/saturdai/issues/18) |
 | Time-of-day / hour buckets | 400 | Partial | Quadrant sketches (6h UTC) + HW hourly season in code; full Phase 5 (24 slots, auto mode switch) deferred — see [LLD-400](../LLD/autosize/400-time-based-patterns.md) | [#17](https://github.com/muandane/saturdai/issues/17) |
 
 ## Explicit spec exclusions (unchanged)
