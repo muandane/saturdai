@@ -25,3 +25,20 @@ const (
 	// ConditionTypeProfileReady is a composite condition: True when TargetResolved and MetricsAvailable are both True.
 	ConditionTypeProfileReady = "ProfileReady"
 )
+
+// Condition types for NamespaceProfile and ClusterProfile status.conditions.
+const (
+	// ConditionTypeSelectorResolved is True when the selector matched at least one workload.
+	ConditionTypeSelectorResolved = "SelectorResolved"
+	// ConditionTypeSelectorConflict is True when another profile already manages an overlapping workload.
+	ConditionTypeSelectorConflict = "SelectorConflict"
+	// ConditionTypeChildrenSynced is True when all child WorkloadProfiles are up to date.
+	ConditionTypeChildrenSynced = "ChildrenSynced"
+)
+
+// Labels applied to child WorkloadProfiles created by selector profiles.
+const (
+	LabelManagedBy  = "autosize.saturdai.auto/managed-by"
+	LabelParentKind = "autosize.saturdai.auto/parent-kind"
+	LabelParentName = "autosize.saturdai.auto/parent-name"
+)

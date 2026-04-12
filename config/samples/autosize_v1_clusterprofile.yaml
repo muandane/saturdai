@@ -1,0 +1,37 @@
+---
+# ClusterProfile: select workloads across all namespaces labeled env=production.
+apiVersion: autosize.saturdai.auto/v1
+kind: ClusterProfile
+metadata:
+  name: production-fleet
+spec:
+  namespaceSelector:
+    matchLabels:
+      env: production
+  workloadSelector:
+    selectAll: true
+  policy:
+    mode: balanced
+    cooldownMinutes: 15
+    collectionIntervalSeconds: 30
+  maxTargets: 200
+---
+# ClusterProfile: select only Deployments with a specific label across staging namespaces.
+apiVersion: autosize.saturdai.auto/v1
+kind: ClusterProfile
+metadata:
+  name: staging-apis
+spec:
+  namespaceSelector:
+    matchLabels:
+      env: staging
+  workloadSelector:
+    labelSelector:
+      matchLabels:
+        component: api
+    kinds:
+      deployment: true
+      statefulSet: false
+  policy:
+    mode: cost
+  maxTargets: 50

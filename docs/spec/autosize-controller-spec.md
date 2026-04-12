@@ -88,6 +88,8 @@ flowchart LR
   Safety --> Patch[patch_target]
 ```
 
+**Bulk policy:** `NamespaceProfile` and `ClusterProfile` controllers resolve Deployments/StatefulSets and ensure **child `WorkloadProfile`** objects exist; the diagram above applies **per child** `WorkloadProfile`, not to the parent selector CRs.
+
 ---
 
 ## 4. Custom Resource Definition
@@ -173,30 +175,39 @@ status:
 
 Learned JSON (**CUSUM**, **feedback**, **Holt–Winters**) is **not** shown above; it lives in ConfigMap `mlstate-my-app` in the same namespace (key `state`, see §6).
 
-### Bulk target selection (not yet in generated CRD schema)
+### Bulk target selection (NamespaceProfile and ClusterProfile)
 
 **Engineering detail:** [LLD-085](../LLD/autosize/085-bulk-target-selection.md). *Implementation status:* [implementation-status.md](../implementation-status.md).
 
-When shipped, `spec` uses **exactly one** of:
+Bulk policy uses **separate CRDs** so `WorkloadProfile` stays a single-workload object (metrics, `mlstate-*`, and webhook matching stay unchanged on **child** profiles):
 
-| Mode | Semantics |
-|------|-----------|
-| **Named ref** | Current shape: `targetRef` names one `Deployment` or `StatefulSet` in the **same namespace** as the `WorkloadProfile`. |
-| **Selector** | `targetSelector` lists `Deployment` / `StatefulSet` objects in that namespace by **labels**, and/or an **explicit opt-in** to select every such workload in the namespace (high blast radius — must be gated in API validation). |
+| Kind | Scope | Semantics |
+|------|--------|-----------|
+| **WorkloadProfile** | Namespaced | `spec.targetRef` names one `Deployment` or `StatefulSet` in the **same namespace** as the CR. |
+| **NamespaceProfile** | Namespaced | `spec.workloadSelector` selects `Deployment` / `StatefulSet` objects **in that namespace** (labels and/or explicit `selectAll`). `spec.policy` mirrors `WorkloadProfile` policy fields. The controller **creates child `WorkloadProfile` objects** (deterministic names, labels, optional `ownerReference`). |
+| **ClusterProfile** | Cluster | `spec.namespaceSelector` (optional; nil = all namespaces) plus `spec.workloadSelector`. Same fan-out to child **`WorkloadProfile`** objects in each matched namespace. |
 
-**Cluster-wide** selection (namespaces + labels) may be a **separate cluster-scoped kind** or an extended schema; see LLD-085 options A/B.
+**Validation:** CRD CEL rules require a non-empty `labelSelector` **or** `selectAll: true` on `workloadSelector`; `kinds` must not disable both Deployment and StatefulSet. See generated CRDs under [`config/crd/bases`](../../config/crd/bases).
 
-**Conflicts:** If two profiles would manage the same workload via overlapping selectors, the default policy is **deny**: surface failure (e.g. `TargetResolved=False` or a dedicated condition) and **do not** actuate until resolved — see LLD-085.
+**Conflicts (default deny):** If another `WorkloadProfile` (standalone or from a different parent) already targets the same `(kind, name)` in a namespace, that workload key is **skipped** for child creation; parent status sets **`SelectorConflict`** with details. No actuation runs on conflicting keys until the conflict is removed.
 
-**Invariants:** Selection resolves only to **parent workloads** (`Deployment` / `StatefulSet`), never to Pods directly (§16). Reconcile may **fan out** to multiple internal or child profiles; kubelet and aggregate behavior stay per workload.
+**Invariants:** Selection resolves only to **parent workloads** (`Deployment` / `StatefulSet`), never to Pods directly (§16). The kubelet / aggregate / recommendation loop runs **per child `WorkloadProfile`**, not on the parent CR.
 
-### Status conditions
-
-`status.conditions` (Kubernetes-style) include at least:
+**Parent status conditions** (`NamespaceProfile` / `ClusterProfile`) include at least:
 
 | Type | True when |
 |------|-----------|
-| `TargetResolved` | Named `targetRef`: the referenced Deployment/StatefulSet exists and was resolved. Selector path (when implemented): at least one matching workload exists **and** selector conflict policy is satisfied — see [LLD-085](../LLD/autosize/085-bulk-target-selection.md). |
+| `SelectorResolved` | At least one workload matched the selector (or False with `NoTargetsFound` if none). |
+| `SelectorConflict` | True when any matched workload is already claimed by another profile (overlap). |
+| `ChildrenSynced` | Child `WorkloadProfile` objects were created/updated/pruned for non-conflicting keys. |
+
+### Status conditions (WorkloadProfile)
+
+`status.conditions` on **`WorkloadProfile`** (Kubernetes-style) include at least:
+
+| Type | True when |
+|------|-----------|
+| `TargetResolved` | The referenced Deployment/StatefulSet exists and was resolved (child profiles from `NamespaceProfile` / `ClusterProfile` use the same condition). |
 | `MetricsAvailable` | Kubelet stats were collected for this evaluation cycle when required (pods scheduled to nodes), and aggregates/recommendations were updated |
 | `ProfileReady` | `TargetResolved` **and** `MetricsAvailable` are both True |
 
@@ -485,7 +496,7 @@ func (r *WorkloadProfileReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 //  - return nil, nil to use default RequeueAfter(interval)
 ```
 
-**Bulk selection (future):** If `spec` uses a selector instead of a single `targetRef`, the controller resolves **one or more** workloads before listing pods and collecting metrics ([LLD-085](../LLD/autosize/085-bulk-target-selection.md)). The loop above applies **per resolved target** (or per fan-out `WorkloadProfile`), including actuation and `mlstate-*` naming rules.
+**Bulk selection:** `NamespaceProfile` and `ClusterProfile` resolve **one or more** workloads and create or update **child `WorkloadProfile` objects** ([LLD-085](../LLD/autosize/085-bulk-target-selection.md)). The reconcile pseudocode above runs **per child `WorkloadProfile`** (each has a single `targetRef`), including actuation and `mlstate-*` naming rules (`mlstate-<child-profile-name>`).
 
 ---
 
@@ -552,11 +563,11 @@ rules:
   resources: ["configmaps"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 - apiGroups: ["autosize.saturdai.auto"]
-  resources: ["workloadprofiles", "workloadprofiles/status"]
+  resources: ["workloadprofiles", "workloadprofiles/status", "namespaceprofiles", "namespaceprofiles/status", "clusterprofiles", "clusterprofiles/status"]
   verbs: ["get", "list", "watch", "create", "update", "patch"]
 ```
 
-*(Events `create`/`patch` may be required when recording changepoint shifts; see generated [`config/rbac/role.yaml`](../../config/rbac/role.yaml).)*
+*(Events `create`/`patch` may be required when recording changepoint shifts; see generated [`config/rbac/role.yaml`](../../config/rbac/role.yaml) for the full rule set including `namespaceprofiles`, `clusterprofiles`, and `namespaces` list/watch.)*
 
 ---
 
@@ -584,7 +595,7 @@ No Prometheus. No VPA. **No external observability database** — optional **in-
 - Safety mechanisms
 - Deployment/StatefulSet patching
 
-**Planned extension (not yet in generated CRD):** [Bulk target selection](../LLD/autosize/085-bulk-target-selection.md) — namespace / label / cluster-wide policy; spec §4; status [implementation-status.md](../implementation-status.md).
+**Shipped:** [Bulk target selection](../LLD/autosize/085-bulk-target-selection.md) — `NamespaceProfile` and `ClusterProfile` CRDs with fan-out to child `WorkloadProfile` objects; spec §4; status [implementation-status.md](../implementation-status.md).
 
 ### Phase 2 — Admission Webhook
 

@@ -1,104 +1,125 @@
 # saturdai
 
-Kubernetes operator that implements a **deterministic, explainable** CPU/memory right-sizing loop for Deployments and StatefulSets: kubelet metrics (no Prometheus), EMA + DDSketch aggregates in `WorkloadProfile` status, mode-based recommendations, safety rules, and optional actuation via workload PATCH.
+A Kubernetes operator that **recommends and optionally applies** CPU and memory requests/limits for **Deployments** and **StatefulSets**. It uses **kubelet stats** (via the API server node proxy), keeps **bounded aggregates** in custom resource status, and applies **deterministic rules** you can audit—no Prometheus dependency, no external ML service, and no opaque scoring.
 
-**Docs:** [Controller spec](docs/spec/autosize-controller-spec.md) · [LLD index](docs/LLD/autosize/README.md) · [Implementation status](docs/implementation-status.md)
+The controller is built with **Kubebuilder** and **controller-runtime**, following the same patterns as many production Kubernetes operators.
 
-**API group:** `autosize.saturdai.auto/v1` · kind: `WorkloadProfile`
+---
 
-## Description
+## Why use it
 
-The reconciler resolves `spec.targetRef` to a workload (single `Deployment` or `StatefulSet`), lists pods, pulls kubelet `/stats/summary` through the API server node proxy, updates per-container aggregates and recommendations in status, and optionally patches the workload when **`AUTOSIZE_ACTUATION`** is set to `true` or `1` (default is **observe-only**). **Bulk selection** (namespace-wide / labels / cluster-wide) is specified in [LLD-085](docs/LLD/autosize/085-bulk-target-selection.md) and [spec §4](docs/spec/autosize-controller-spec.md) but **not** yet in the shipped CRD. Pod **restart counts** (max per container across replicas) are stored in status; when the delta since the last reconcile exceeds a threshold after a baseline exists, the safety layer **pauses downsizing** for two cycles (`status.downsizePauseCyclesRemaining`). See [LLD-050](docs/LLD/autosize/050-pod-signals.md) / [LLD-070](docs/LLD/autosize/070-safety-layer.md).
+- **Explainable output** — Recommendations include human-readable rationales; safety rules cap risky changes.
+- **Observe first** — By default the operator **does not** change workloads; you can run it until you trust the numbers, then enable patching.
+- **Cold start covered** — An optional mutating webhook can inject defaults or last-known recommendations on new pods.
+- **Flexible targeting** — Point at a single workload, everything matching labels in a namespace, or a cluster-wide policy—see [Custom resources](#custom-resources) below.
 
-### Learned state (ConfigMap) and recommendation pipeline
+---
 
-Heavy or evolving **learned** state (CUSUM, feedback, Holt–Winters) is stored in a **ConfigMap** per profile (`mlstate-<workloadprofile-name>` in the same namespace, owner-referenced for GC), not in the CRD status. **CRD status** still holds EMA + global DDSketches and optional **UTC quadrant sketches** (four 6-hour buckets per resource) for time-of-day-aware quantiles.
+## Quick start
 
-| Area | Package / behavior |
-|------|---------------------|
-| Sketch + EMA update | [`internal/aggregate/updater.go`](internal/aggregate/updater.go) — single `Update` path; always records samples in the sketch, EMA only when usage > 0 |
-| Modes | [`internal/recommend`](internal/recommend) — `Engine` strategies (`cost`, `balanced`, `resilience`, `burst`), wrapped by `biasedEngine` and a `BiasProvider` |
-| Bias from accuracy | [`internal/recommend/feedback.go`](internal/recommend/feedback.go) — EWMA of actual vs **last post-safety** `status.recommendations`; applies after enough samples |
-| Changepoint (CUSUM) | [`internal/changepoint`](internal/changepoint) — shift vs pre-update `EMA_long`; on detection, global sketch for that resource is cleared to restart aggregation |
-| Holt–Winters | [`internal/aggregate/holtwinters.go`](internal/aggregate/holtwinters.go) — hourly seasonality; **forecasts** feed burst/resilience limit headroom when warm |
-| Persistence | [`internal/mlstate`](internal/mlstate) — `Repository` load/save |
-| Time | Reconciler **`Clock`** (defaults to `time.Now` in [`cmd/main.go`](cmd/main.go)) for tests and consistent timestamps |
+1. **Clone and verify the build**
 
-The manager **ClusterRole** includes ConfigMap verbs for these objects. See [Implementation status](docs/implementation-status.md) for a feature checklist.
+   ```sh
+   make build
+   make test
+   ```
 
-`recommend.Compute` constructs `New(mode, NoopBias{})` on each call (fine for tests); the reconciler uses `recommend.New` with `LiveBias` for production.
+2. **Install CRDs** (from repo root, with a working kubeconfig):
 
-## Getting Started
+   ```sh
+   make install
+   ```
 
-### Prerequisites
+3. **Build and deploy the manager** (set your registry and tag):
 
-- Go (see `go.mod`)
-- Docker (for image build)
-- `kubectl` aligned with your cluster
-- A Kubernetes cluster
-- [cert-manager](https://cert-manager.io/docs/installation/) (required for mutating webhook TLS in the default `config/default` bundle)
+   ```sh
+   make docker-build docker-push IMG=<registry>/saturdai:tag
+   make deploy IMG=<registry>/saturdai:tag
+   ```
 
-### Build and test (local)
+   The default install expects **[cert-manager](https://cert-manager.io/docs/installation/)** for webhook TLS. The webhook is configured with `failurePolicy: Ignore` so pod creation is not blocked if the webhook is temporarily unavailable.
+
+4. **Apply the sample bundle** (edit namespaces/labels to match your cluster first):
+
+   ```sh
+   kubectl apply -k config/samples/
+   ```
+
+5. **Inspect resources** — Look for `WorkloadProfile` and related objects in the API group `autosize.saturdai.auto/v1`. Sample manifests live under [`config/samples/`](config/samples/).
+
+For global default resources used when no profile matches a pod, apply [`config/samples/autosize_global_defaults_configmap.yaml`](config/samples/autosize_global_defaults_configmap.yaml) and align the manager flags with [`config/manager/manager.yaml`](config/manager/manager.yaml).
+
+---
+
+## How it works (short)
+
+1. For each managed workload, the controller finds pods, reads **per-node kubelet summary** stats, and updates **rolling aggregates** (EMA, DDSketch-backed percentiles) in status.
+2. A **recommendation engine** applies one of four modes (for example cost vs resilience). A **safety layer** enforces floors, cooldowns, and guards around restarts and memory trends.
+3. **Learned state** that does not belong in etcd-heavy status is stored in a **ConfigMap** per profile (`mlstate-<name>`), owner-referenced for cleanup.
+4. **Actuation** (PATCH pod template resources) is **disabled unless** you set `AUTOSIZE_ACTUATION=true` on the manager Deployment—use observe-only until you are ready.
+
+---
+
+## Custom resources
+
+| Kind | Scope | When to use it |
+|------|--------|----------------|
+| **WorkloadProfile** | Namespace | One **named** `Deployment` or `StatefulSet` in that namespace. Holds metrics, recommendations, and links to `mlstate-*`. |
+| **NamespaceProfile** | Namespace | Match many workloads **in that namespace** (labels or explicit select-all). The operator creates **child** `WorkloadProfile` objects so each workload still has a single profile to reconcile. |
+| **ClusterProfile** | Cluster | Same idea across namespaces: namespace labels + workload selection. Again, children are normal `WorkloadProfile` resources. |
+
+If two policies would claim the same workload, the overlapping case is **not** applied for that workload; parent objects surface that in status so you can fix the configuration.
+
+---
+
+## Samples
+
+| File | What it shows |
+|------|----------------|
+| [`autosize_v1_workloadprofile.yaml`](config/samples/autosize_v1_workloadprofile.yaml) | Single workload by name |
+| [`autosize_v1_namespaceprofile.yaml`](config/samples/autosize_v1_namespaceprofile.yaml) | Namespace-scoped selection examples |
+| [`autosize_v1_clusterprofile.yaml`](config/samples/autosize_v1_clusterprofile.yaml) | Cluster-wide selection examples |
+| [`sample-deployment.yaml`](config/samples/sample-deployment.yaml) | Example workload to attach a profile to |
+| [`autosize_global_defaults_configmap.yaml`](config/samples/autosize_global_defaults_configmap.yaml) | Webhook fallback defaults |
+
+---
+
+## Prerequisites
+
+- Go (see [`go.mod`](go.mod))
+- Docker (for image builds)
+- `kubectl` and a reachable cluster
+- cert-manager (for the default webhook install)
+
+---
+
+## Development
+
+After changing API types or kubebuilder markers:
 
 ```sh
-make build
-make test
+make manifests generate
 ```
 
-After API changes: `make manifests generate`
+Other useful targets: `make help`, `make lint`, `make lint-fix` (if configured in your environment).
 
-### Deploy on a cluster
+---
 
-**Build and push the manager image:**
+## Actuation
 
-```sh
-make docker-build docker-push IMG=<registry>/saturdai:tag
-```
+To allow the controller to PATCH workload templates:
 
-**Install CRDs:**
-
-```sh
-make install
-```
-
-**Deploy the controller:**
-
-```sh
-make deploy IMG=<registry>/saturdai:tag
-```
-
-The default kustomize bundle enables the **Pod mutating admission webhook** and a **cert-manager** `Certificate` for webhook TLS. Ensure cert-manager is installed first; the webhook uses `failurePolicy: Ignore` so scheduling still works if the webhook is unavailable.
-
-**Apply global defaults (optional, used as fallback when no `WorkloadProfile` recommendation applies):**
-
-```sh
-kubectl apply -f config/samples/autosize_global_defaults_configmap.yaml
-```
-
-The manager is configured with `--defaults-configmap-namespace=saturdai-system` and `--defaults-configmap-name=autosize-global-defaults` (see [`config/manager/manager.yaml`](config/manager/manager.yaml)).
-
-**Apply a sample `WorkloadProfile`:**
-
-```sh
-kubectl apply -k config/samples/
-```
-
-Samples use `apiVersion: autosize.saturdai.auto/v1`.
-
-### Actuation
-
-By default the controller **does not** PATCH workloads. To enable actuation:
-
-```sh
-# In the manager Deployment, set:
+```yaml
 env:
   - name: AUTOSIZE_ACTUATION
     value: "true"
 ```
 
-Soak with observe-only first; then enable in non-production.
+Roll this out gradually (staging before production).
 
-### Uninstall
+---
+
+## Uninstall
 
 ```sh
 kubectl delete -k config/samples/
@@ -106,25 +127,31 @@ make uninstall
 make undeploy
 ```
 
-## Project distribution
+---
 
-### Installer bundle
+## Packaging
+
+**Installer YAML:**
 
 ```sh
 make build-installer IMG=<registry>/saturdai:tag
 ```
 
-Produces consolidated YAML under `dist/` (see Makefile help).
+Artifacts under `dist/`. Optional Helm: `kubebuilder edit --plugins=helm/v2-alpha`.
 
-### Helm (optional)
+---
 
-```sh
-kubebuilder edit --plugins=helm/v2-alpha
-```
+## More documentation
+
+Extra reference material (behavioral notes, design write-ups) lives under [`docs/`](docs/) for when you need depth beyond this page.
+
+---
 
 ## Contributing
 
-See [Kubebuilder book](https://book.kubebuilder.io/introduction.html). Run `make help` for targets.
+This project uses standard **Kubebuilder** workflows. See the [Kubebuilder book](https://book.kubebuilder.io/introduction.html). Run tests before submitting changes; `make test` runs the suite defined in the `Makefile`.
+
+---
 
 ## License
 
