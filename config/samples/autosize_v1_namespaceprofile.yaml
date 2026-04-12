@@ -1,9 +1,48 @@
+---
+# NamespaceProfile: select workloads by label in this namespace.
 apiVersion: autosize.saturdai.auto/v1
 kind: NamespaceProfile
 metadata:
-  labels:
-    app.kubernetes.io/name: saturdai
-    app.kubernetes.io/managed-by: kustomize
-  name: namespaceprofile-sample
+  name: payments-team
+  namespace: payments
 spec:
-  # TODO(user): Add fields here
+  workloadSelector:
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/part-of: payments
+  policy:
+    mode: balanced
+    cooldownMinutes: 15
+    collectionIntervalSeconds: 30
+---
+# NamespaceProfile: select ALL Deployments and StatefulSets in namespace.
+# WARNING: high blast radius — every workload in this namespace will be managed.
+apiVersion: autosize.saturdai.auto/v1
+kind: NamespaceProfile
+metadata:
+  name: all-workloads
+  namespace: staging
+spec:
+  workloadSelector:
+    selectAll: true
+  policy:
+    mode: cost
+    cooldownMinutes: 10
+---
+# NamespaceProfile: select only Deployments (no StatefulSets) by label.
+apiVersion: autosize.saturdai.auto/v1
+kind: NamespaceProfile
+metadata:
+  name: deployments-only
+  namespace: production
+spec:
+  workloadSelector:
+    labelSelector:
+      matchLabels:
+        tier: frontend
+    kinds:
+      deployment: true
+      statefulSet: false
+  policy:
+    mode: resilience
+  maxTargets: 20
