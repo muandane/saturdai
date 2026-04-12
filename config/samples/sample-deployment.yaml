@@ -27,3 +27,18 @@ spec:
             limits:
               cpu: 200m
               memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: workloadprofile-sample
+  labels:
+    app.kubernetes.io/name: saturdai
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    app: workloadprofile-sample
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80

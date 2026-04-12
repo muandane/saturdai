@@ -23,6 +23,7 @@ import (
 	"github.com/muandane/saturdai/internal/mlstate"
 	"github.com/muandane/saturdai/internal/podsignals"
 	"github.com/muandane/saturdai/internal/recommend"
+	"github.com/muandane/saturdai/internal/resourcecanonical"
 	"github.com/muandane/saturdai/internal/safety"
 	"github.com/muandane/saturdai/internal/target"
 
@@ -259,7 +260,11 @@ func (r *WorkloadProfileReconciler) runObserveAndActuate(
 		recs = append(recs, rec)
 	}
 
-	profile.Status.MetricsRecommendations = append([]autosizev1.Recommendation(nil), recs...)
+	metricsRecs, err := resourcecanonical.CanonicalizeRecommendations(recs)
+	if err != nil {
+		return nil, fmt.Errorf("canonicalize metrics recommendations: %w", err)
+	}
+	profile.Status.MetricsRecommendations = append([]autosizev1.Recommendation(nil), metricsRecs...)
 
 	curRes, err := currentResourcesFromTemplate(obj, tplNames)
 	if err != nil {
@@ -268,7 +273,11 @@ func (r *WorkloadProfileReconciler) runObserveAndActuate(
 
 	blockDownsize := pauseRemaining > 0 || anySpike
 	safe := safety.Apply(profile, recs, curRes, sig, r.now(), blockDownsize)
-	profile.Status.Recommendations = safe.Recommendations
+	finalRecs, err := resourcecanonical.CanonicalizeRecommendations(safe.Recommendations)
+	if err != nil {
+		return nil, fmt.Errorf("canonicalize recommendations: %w", err)
+	}
+	profile.Status.Recommendations = finalRecs
 	profile.Status.DownsizePauseCyclesRemaining = restartPauseAfterReconcile(baselineSeen, anySpike, pauseRemaining)
 	lastEval := metav1.NewTime(r.now())
 	profile.Status.LastEvaluated = &lastEval
@@ -286,7 +295,7 @@ func (r *WorkloadProfileReconciler) runObserveAndActuate(
 		return nil, nil
 	}
 
-	if err := actuate.Apply(ctx, r.Client, obj, safe.Recommendations, safe.SkipMemory); err != nil {
+	if err := actuate.Apply(ctx, r.Client, obj, finalRecs, safe.SkipMemory); err != nil {
 		return nil, err
 	}
 	profile.Status.LastApplied = &metav1.Time{Time: r.now()}
