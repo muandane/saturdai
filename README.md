@@ -1,141 +1,113 @@
 # saturdai
 
-Kubernetes operator for **deterministic, explainable** CPU/memory right-sizing on **Deployments** and **StatefulSets**: kubelet `/stats/summary` (no Prometheus), EMA + DDSketch aggregates, four recommendation modes, safety rules, optional workload PATCH, and a mutating webhook for cold-start defaults.
+A Kubernetes operator that **recommends and optionally applies** CPU and memory requests/limits for **Deployments** and **StatefulSets**. It uses **kubelet stats** (via the API server node proxy), keeps **bounded aggregates** in custom resource status, and applies **deterministic rules** you can audit—no Prometheus dependency, no external ML service, and no opaque scoring.
+
+The controller is built with **Kubebuilder** and **controller-runtime**, following the same patterns as many production Kubernetes operators.
 
 ---
 
-## Start here (5 minutes)
+## Why use it
 
-| Step | What to do |
-|------|------------|
-| 1 | Read **[Controller spec](docs/spec/autosize-controller-spec.md)** §2–4 for scope and API shape. |
-| 2 | Skim **[Implementation status](docs/implementation-status.md)** for what is shipped vs planned. |
-| 3 | Clone, `make build`, `make test` (see [Build and test](#build-and-test-local)). |
-| 4 | Install CRDs: `make install`. Deploy controller: `make deploy IMG=...` (see [Deploy](#deploy-on-a-cluster)). |
-| 5 | Apply samples: `kubectl apply -k config/samples/` — then inspect CRs (see [Samples](#samples-yaml)). |
-
-**API group:** `autosize.saturdai.auto/v1`
+- **Explainable output** — Recommendations include human-readable rationales; safety rules cap risky changes.
+- **Observe first** — By default the operator **does not** change workloads; you can run it until you trust the numbers, then enable patching.
+- **Cold start covered** — An optional mutating webhook can inject defaults or last-known recommendations on new pods.
+- **Flexible targeting** — Point at a single workload, everything matching labels in a namespace, or a cluster-wide policy—see [Custom resources](#custom-resources) below.
 
 ---
 
-## What this project is
+## Quick start
 
-- **Observe path:** For each reconciled workload, the controller lists pods, fetches kubelet stats per node, updates bounded aggregates and recommendations in **`WorkloadProfile.status`**, and persists heavier learned state in **`ConfigMap mlstate-<name>`** (same namespace).
-- **Actuation path:** Optional; off by default. Set **`AUTOSIZE_ACTUATION=true`** on the manager to PATCH pod template resources.
-- **Admission:** Mutating webhook on Pod create can inject recommendations or global defaults (`failurePolicy: Ignore` by default install).
+1. **Clone and verify the build**
 
-Deep dive: [LLD index](docs/LLD/autosize/README.md) · [Kubebuilder layout](AGENTS.md) (this repo follows upstream Kubebuilder conventions).
+   ```sh
+   make build
+   make test
+   ```
+
+2. **Install CRDs** (from repo root, with a working kubeconfig):
+
+   ```sh
+   make install
+   ```
+
+3. **Build and deploy the manager** (set your registry and tag):
+
+   ```sh
+   make docker-build docker-push IMG=<registry>/saturdai:tag
+   make deploy IMG=<registry>/saturdai:tag
+   ```
+
+   The default install expects **[cert-manager](https://cert-manager.io/docs/installation/)** for webhook TLS. The webhook is configured with `failurePolicy: Ignore` so pod creation is not blocked if the webhook is temporarily unavailable.
+
+4. **Apply the sample bundle** (edit namespaces/labels to match your cluster first):
+
+   ```sh
+   kubectl apply -k config/samples/
+   ```
+
+5. **Inspect resources** — Look for `WorkloadProfile` and related objects in the API group `autosize.saturdai.auto/v1`. Sample manifests live under [`config/samples/`](config/samples/).
+
+For global default resources used when no profile matches a pod, apply [`config/samples/autosize_global_defaults_configmap.yaml`](config/samples/autosize_global_defaults_configmap.yaml) and align the manager flags with [`config/manager/manager.yaml`](config/manager/manager.yaml).
 
 ---
 
-## Custom resources (3 kinds)
+## How it works (short)
 
-| Kind | Scope | Use when |
-|------|--------|----------|
-| **WorkloadProfile** | Namespaced | One **named** `Deployment` or `StatefulSet` (`spec.targetRef`). This is where metrics, recommendations, and `mlstate-*` attach. |
-| **NamespaceProfile** | Namespaced | Select many workloads **in the same namespace** via `spec.workloadSelector` (labels and/or `selectAll`). Creates **child** `WorkloadProfile` objects (fan-out). |
-| **ClusterProfile** | Cluster | Select workloads across namespaces: `spec.namespaceSelector` + `spec.workloadSelector`. Creates **child** `WorkloadProfile` objects in each namespace. |
-
-**Fan-out:** Parent profiles do not run the full kubelet loop themselves; children carry `spec.targetRef` so the existing **`WorkloadProfile`** reconciler and pod webhook keep a single code path. Overlap with another profile managing the same workload is **denied** (see `SelectorConflict` in parent status). Details: [LLD-085](docs/LLD/autosize/085-bulk-target-selection.md), spec §4.
+1. For each managed workload, the controller finds pods, reads **per-node kubelet summary** stats, and updates **rolling aggregates** (EMA, DDSketch-backed percentiles) in status.
+2. A **recommendation engine** applies one of four modes (for example cost vs resilience). A **safety layer** enforces floors, cooldowns, and guards around restarts and memory trends.
+3. **Learned state** that does not belong in etcd-heavy status is stored in a **ConfigMap** per profile (`mlstate-<name>`), owner-referenced for cleanup.
+4. **Actuation** (PATCH pod template resources) is **disabled unless** you set `AUTOSIZE_ACTUATION=true` on the manager Deployment—use observe-only until you are ready.
 
 ---
 
-## Documentation map
+## Custom resources
 
-| Doc | Purpose |
-|-----|---------|
-| [docs/spec/autosize-controller-spec.md](docs/spec/autosize-controller-spec.md) | Normative behavior, API examples, reconcile pseudocode |
-| [docs/implementation-status.md](docs/implementation-status.md) | Feature checklist vs spec / LLDs |
-| [docs/LLD/autosize/README.md](docs/LLD/autosize/README.md) | Design index and dependency graph |
-| [Kubebuilder CONTRIBUTING](https://github.com/kubernetes-sigs/kubebuilder/blob/master/CONTRIBUTING.md) | Upstream contribution norms (this repo may add its own `CONTRIBUTING.md`) |
-| [AGENTS.md](AGENTS.md) | Kubebuilder-oriented agent notes for this repository |
+| Kind | Scope | When to use it |
+|------|--------|----------------|
+| **WorkloadProfile** | Namespace | One **named** `Deployment` or `StatefulSet` in that namespace. Holds metrics, recommendations, and links to `mlstate-*`. |
+| **NamespaceProfile** | Namespace | Match many workloads **in that namespace** (labels or explicit select-all). The operator creates **child** `WorkloadProfile` objects so each workload still has a single profile to reconcile. |
+| **ClusterProfile** | Cluster | Same idea across namespaces: namespace labels + workload selection. Again, children are normal `WorkloadProfile` resources. |
+
+If two policies would claim the same workload, the overlapping case is **not** applied for that workload; parent objects surface that in status so you can fix the configuration.
 
 ---
 
-## Samples (`config/samples/`)
+## Samples
 
-Applied together via `kubectl apply -k config/samples/` ([kustomization](config/samples/kustomization.yaml)).
-
-| File | Purpose |
-|------|---------|
-| [autosize_v1_workloadprofile.yaml](config/samples/autosize_v1_workloadprofile.yaml) | Single workload by name (`targetRef`) |
-| [autosize_v1_namespaceprofile.yaml](config/samples/autosize_v1_namespaceprofile.yaml) | Namespace-scoped label / select-all / kinds examples |
-| [autosize_v1_clusterprofile.yaml](config/samples/autosize_v1_clusterprofile.yaml) | Cluster-wide namespace + workload selection |
-| [sample-deployment.yaml](config/samples/sample-deployment.yaml) | Example workload to point a profile at |
-| [autosize_global_defaults_configmap.yaml](config/samples/autosize_global_defaults_configmap.yaml) | Fallback defaults for the webhook |
-
-Edit namespaces and labels to match your cluster before relying on them in production.
+| File | What it shows |
+|------|----------------|
+| [`autosize_v1_workloadprofile.yaml`](config/samples/autosize_v1_workloadprofile.yaml) | Single workload by name |
+| [`autosize_v1_namespaceprofile.yaml`](config/samples/autosize_v1_namespaceprofile.yaml) | Namespace-scoped selection examples |
+| [`autosize_v1_clusterprofile.yaml`](config/samples/autosize_v1_clusterprofile.yaml) | Cluster-wide selection examples |
+| [`sample-deployment.yaml`](config/samples/sample-deployment.yaml) | Example workload to attach a profile to |
+| [`autosize_global_defaults_configmap.yaml`](config/samples/autosize_global_defaults_configmap.yaml) | Webhook fallback defaults |
 
 ---
 
 ## Prerequisites
 
-- Go (version in [`go.mod`](go.mod))
-- Docker (for image build)
-- `kubectl` matching your cluster
-- A Kubernetes cluster
-- [cert-manager](https://cert-manager.io/docs/installation/) (default `config/default` bundle uses it for webhook TLS)
+- Go (see [`go.mod`](go.mod))
+- Docker (for image builds)
+- `kubectl` and a reachable cluster
+- cert-manager (for the default webhook install)
 
 ---
 
-## Build and test (local)
+## Development
 
-```sh
-make build
-make test
-```
-
-After API or marker changes:
+After changing API types or kubebuilder markers:
 
 ```sh
 make manifests generate
 ```
 
-Formatting / lint: `make lint-fix` or `make lint` (see `Makefile`).
+Other useful targets: `make help`, `make lint`, `make lint-fix` (if configured in your environment).
 
 ---
 
-## Deploy on a cluster
+## Actuation
 
-**Build and push the manager image:**
-
-```sh
-make docker-build docker-push IMG=<registry>/saturdai:tag
-```
-
-**Install CRDs:**
-
-```sh
-make install
-```
-
-**Deploy the controller:**
-
-```sh
-make deploy IMG=<registry>/saturdai:tag
-```
-
-The default kustomize bundle enables the **Pod mutating admission webhook** and a **cert-manager** `Certificate` for webhook TLS. Install cert-manager first. The webhook uses `failurePolicy: Ignore` so scheduling continues if the webhook is unavailable.
-
-**Optional — global defaults ConfigMap** (webhook fallback when no profile applies):
-
-```sh
-kubectl apply -f config/samples/autosize_global_defaults_configmap.yaml
-```
-
-Wire the manager with `--defaults-configmap-namespace` and `--defaults-configmap-name` (see [`config/manager/manager.yaml`](config/manager/manager.yaml)).
-
-**Apply samples:**
-
-```sh
-kubectl apply -k config/samples/
-```
-
----
-
-## Actuation (off by default)
-
-The controller **does not** PATCH workloads unless you enable it:
+To allow the controller to PATCH workload templates:
 
 ```yaml
 env:
@@ -143,7 +115,7 @@ env:
     value: "true"
 ```
 
-Run observe-only first; enable in non-production before production.
+Roll this out gradually (staging before production).
 
 ---
 
@@ -157,23 +129,27 @@ make undeploy
 
 ---
 
-## Project distribution
+## Packaging
 
-**Installer bundle:**
+**Installer YAML:**
 
 ```sh
 make build-installer IMG=<registry>/saturdai:tag
 ```
 
-Output under `dist/` (see `make help`).
+Artifacts under `dist/`. Optional Helm: `kubebuilder edit --plugins=helm/v2-alpha`.
 
-**Helm (optional):** `kubebuilder edit --plugins=helm/v2-alpha`
+---
+
+## More documentation
+
+Extra reference material (behavioral notes, design write-ups) lives under [`docs/`](docs/) for when you need depth beyond this page.
 
 ---
 
 ## Contributing
 
-See [Kubebuilder book](https://book.kubebuilder.io/introduction.html) and upstream [contributing](https://github.com/kubernetes-sigs/kubebuilder/blob/master/CONTRIBUTING.md). Run `make help` for targets; follow `make test` / `make lint` before opening a PR when available in your environment.
+This project uses standard **Kubebuilder** workflows. See the [Kubebuilder book](https://book.kubebuilder.io/introduction.html). Run tests before submitting changes; `make test` runs the suite defined in the `Makefile`.
 
 ---
 
