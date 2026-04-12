@@ -22,6 +22,12 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the saturdai itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
+- clusterprofile_admin_role.yaml
+- clusterprofile_editor_role.yaml
+- clusterprofile_viewer_role.yaml
+- namespaceprofile_admin_role.yaml
+- namespaceprofile_editor_role.yaml
+- namespaceprofile_viewer_role.yaml
 - workloadprofile_admin_role.yaml
 - workloadprofile_editor_role.yaml
 - workloadprofile_viewer_role.yaml

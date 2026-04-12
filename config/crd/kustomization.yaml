@@ -3,6 +3,8 @@
 # It should be run by config/default
 resources:
 - bases/autosize.saturdai.auto_workloadprofiles.yaml
+- bases/autosize.saturdai.auto_namespaceprofiles.yaml
+- bases/autosize.saturdai.auto_clusterprofiles.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

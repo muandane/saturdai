@@ -1,0 +1,9 @@
+apiVersion: autosize.saturdai.auto/v1
+kind: ClusterProfile
+metadata:
+  labels:
+    app.kubernetes.io/name: saturdai
+    app.kubernetes.io/managed-by: kustomize
+  name: clusterprofile-sample
+spec:
+  # TODO(user): Add fields here

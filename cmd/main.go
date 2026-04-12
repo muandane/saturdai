@@ -234,6 +234,23 @@ func main() {
 		Defaults: defaultsLoader,
 	}
 	mgr.GetWebhookServer().Register("/mutate-v1-pod", &admissionwh.Webhook{Handler: podMutator})
+	targetResolver := target.NewResolver(mgr.GetClient())
+	if err := (&controller.NamespaceProfileReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		Target: targetResolver,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "NamespaceProfile")
+		os.Exit(1)
+	}
+	if err := (&controller.ClusterProfileReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		Target: targetResolver,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "ClusterProfile")
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
