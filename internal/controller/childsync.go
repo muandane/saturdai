@@ -7,7 +7,6 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -196,17 +195,4 @@ func syncClusterChildren(
 	}
 
 	return children, nil
-}
-
-// childWorkloadProfileExists checks whether a named child WorkloadProfile already exists.
-func childWorkloadProfileExists(ctx context.Context, c client.Client, namespace, name string) (bool, error) {
-	wp := &autosizev1.WorkloadProfile{}
-	err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, wp)
-	if err != nil {
-		if client.IgnoreNotFound(err) == nil {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
 }
