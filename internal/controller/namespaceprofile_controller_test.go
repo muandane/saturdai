@@ -19,66 +19,138 @@ package controller
 import (
 	"context"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 
 	autosizev1 "github.com/muandane/saturdai/api/v1"
+	"github.com/muandane/saturdai/internal/target"
 )
 
 var _ = Describe("NamespaceProfile Controller", func() {
-	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
+	const nsName = "nsp-test"
 
-		ctx := context.Background()
+	ctx := context.Background()
 
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+	BeforeEach(func() {
+		ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nsName}}
+		err := k8sClient.Get(ctx, client.ObjectKeyFromObject(ns), ns)
+		if errors.IsNotFound(err) {
+			Expect(k8sClient.Create(ctx, ns)).To(Succeed())
 		}
-		namespaceprofile := &autosizev1.NamespaceProfile{}
+	})
 
-		BeforeEach(func() {
-			By("creating the custom resource for the Kind NamespaceProfile")
-			err := k8sClient.Get(ctx, typeNamespacedName, namespaceprofile)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &autosizev1.NamespaceProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
+	Context("When no workloads match", func() {
+		It("should set SelectorResolved=False with NoTargetsFound", func() {
+			nsp := &autosizev1.NamespaceProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "empty-nsp", Namespace: nsName},
+				Spec: autosizev1.NamespaceProfileSpec{
+					WorkloadSelector: autosizev1.WorkloadSelector{
+						LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "nonexistent"}},
 					},
-					// TODO(user): Specify other spec details if needed.
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+					Policy: autosizev1.PolicySpec{Mode: "balanced"},
+				},
 			}
-		})
+			err := k8sClient.Get(ctx, client.ObjectKeyFromObject(nsp), nsp)
+			if errors.IsNotFound(err) {
+				Expect(k8sClient.Create(ctx, nsp)).To(Succeed())
+			}
 
-		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &autosizev1.NamespaceProfile{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance NamespaceProfile")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &NamespaceProfileReconciler{
+			reconciler := &NamespaceProfileReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
+				Target: target.NewResolver(k8sClient),
 			}
-
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(nsp),
 			})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(nsp), nsp)).To(Succeed())
+			Expect(nsp.Status.ResolvedCount).To(Equal(int32(0)))
+
+			cond := findNSPCondition(nsp, autosizev1.ConditionTypeSelectorResolved)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal("NoTargetsFound"))
+
+			Expect(k8sClient.Delete(ctx, nsp)).To(Succeed())
+		})
+	})
+
+	Context("When workloads match by label", func() {
+		It("should create child WorkloadProfiles and set conditions", func() {
+			replicas := int32(1)
+			dep := &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pay-api",
+					Namespace: nsName,
+					Labels:    map[string]string{"team": "payments"},
+				},
+				Spec: appsv1.DeploymentSpec{
+					Replicas: &replicas,
+					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "pay-api"}},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "pay-api"}},
+						Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "busybox"}}},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, dep)).To(Succeed())
+
+			nsp := &autosizev1.NamespaceProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "payments-nsp", Namespace: nsName},
+				Spec: autosizev1.NamespaceProfileSpec{
+					WorkloadSelector: autosizev1.WorkloadSelector{
+						LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"team": "payments"}},
+					},
+					Policy: autosizev1.PolicySpec{Mode: "balanced"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, nsp)).To(Succeed())
+
+			reconciler := &NamespaceProfileReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+				Target: target.NewResolver(k8sClient),
+			}
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(nsp),
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(nsp), nsp)).To(Succeed())
+			Expect(nsp.Status.ResolvedCount).To(Equal(int32(1)))
+			Expect(nsp.Status.ActiveChildren).To(Equal(int32(1)))
+			Expect(nsp.Status.Children).To(HaveLen(1))
+
+			childName := nsp.Status.Children[0].Name
+			child := &autosizev1.WorkloadProfile{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: nsName, Name: childName}, child)).To(Succeed())
+			Expect(child.Spec.TargetRef.Kind).To(Equal("Deployment"))
+			Expect(child.Spec.TargetRef.Name).To(Equal("pay-api"))
+			Expect(child.Spec.Mode).To(Equal("balanced"))
+			Expect(child.Labels[autosizev1.LabelManagedBy]).To(Equal("true"))
+			Expect(child.Labels[autosizev1.LabelParentKind]).To(Equal("NamespaceProfile"))
+
+			Expect(k8sClient.Delete(ctx, nsp)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, dep)).To(Succeed())
 		})
 	})
 })
+
+func findNSPCondition(nsp *autosizev1.NamespaceProfile, typ string) *metav1.Condition {
+	for i := range nsp.Status.Conditions {
+		if nsp.Status.Conditions[i].Type == typ {
+			return &nsp.Status.Conditions[i]
+		}
+	}
+	return nil
+}

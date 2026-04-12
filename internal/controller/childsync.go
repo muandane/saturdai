@@ -18,7 +18,7 @@ import (
 
 // childName returns a deterministic name for a child WorkloadProfile.
 func childName(parentName string, key target.WorkloadKey) string {
-	h := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s", parentName, key.Namespace, key.Kind, key.Name)))
+	h := sha256.Sum256(fmt.Appendf(nil, "%s/%s/%s/%s", parentName, key.Namespace, key.Kind, key.Name))
 	return fmt.Sprintf("%s-%x", truncate(parentName, 40), h[:4])
 }
 
