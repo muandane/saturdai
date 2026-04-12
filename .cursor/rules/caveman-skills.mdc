@@ -1,0 +1,37 @@
+---
+description: Caveman chat mode, terse PR review, memory-file compression — triggers and boundaries
+alwaysApply: true
+---
+
+# Caveman skills (repo)
+
+Full detail: `.agents/skills/caveman/SKILL.md`, `.agents/skills/caveman-review/SKILL.md`, `.agents/skills/caveman-compress/SKILL.md`.
+
+## When to use which
+
+| Mode | Trigger |
+|------|---------|
+| **caveman** | "caveman mode", `/caveman`, "less tokens", "be brief", token-efficiency asks |
+| **caveman-review** | "review PR", "review the diff", `/review`, PR/code review |
+| **caveman-compress** | `/caveman:compress <path>`, "compress memory file" (CLAUDE.md, todos, preferences) |
+
+## caveman (chat)
+
+- Default intensity **full**; switch: `/caveman lite|full|ultra` (also wenyan-* levels in skill).
+- Drop filler/hedging; keep technical terms, code blocks, quoted errors exact. Pattern: `[thing] [action] [reason]. [next step].`
+- **Off:** `stop caveman` / `normal mode`. **Pause caveman** for security warnings, irreversible ops, fragile multi-step instructions — normal text, then resume.
+- **Code/commits/PR prose:** write normal unless user asked caveman for that output.
+
+## caveman-review
+
+- One line per finding: `L<line>: <problem>. <fix>.` or `file:L<line>:` for multi-file.
+- Optional prefix: `🔴 bug:` `🟡 risk:` `🔵 nit:` `❓ q:`
+- No throat-clearing; concrete fix + `why` when non-obvious. **Does not** implement fixes, approve/changes, or run linters — comments only.
+- **Pause terse** for CVE-class security, architecture disagreements, onboarding — paragraph OK, then resume.
+- **Off:** `stop caveman-review` / `normal mode`.
+
+## caveman-compress
+
+- Run from `.agents/skills/caveman-compress`: `python3 -m scripts <absolute_filepath>` (entry: `scripts/__main__.py`).
+- Preserves code blocks, backticks, URLs, paths, commands, structure; compresses prose only. Backup: `<file>.original.md`; skip `*.original.md`.
+- **Only** `.md`, `.txt`, extensionless prose — never compress `.py`, `.js`, `.ts`, `.json`, `.yaml`, lockfiles, etc. (full list in skill).
