@@ -13,7 +13,7 @@ Define how autosizing policy can apply to **many** workloads: all matching workl
 | §10 | `resolveTarget` becomes `resolveTargets` (list) or equivalent — reconcile only after target set known |
 | §16 | No direct Pod mutation — selection resolves to parent workloads only |
 
-**Authoritative spec update:** Before marking this LLD `implemented`, add a **§4.x Bulk selection** (or equivalent) subsection to [autosize-controller-spec.md](../../spec/autosize-controller-spec.md) that restates the mutual exclusivity, selector semantics, and cluster-wide rules below so spec and LLD stay aligned ([000](./000-doc-conventions.md)).
+**Spec alignment:** [autosize-controller-spec.md](../../spec/autosize-controller-spec.md) §4 (*Bulk target selection*) and §10 (paragraph after reconcile pseudocode) summarize mutual exclusivity, conflicts, and per-target loop behavior; keep them in sync when the CRD schema lands.
 
 ## Scope and non-goals
 
@@ -150,7 +150,6 @@ Pick one in implementation; default table row is the safe choice.
 ## Open questions
 
 - **Fan-out vs multi-status:** Confirm fan-out child `WorkloadProfile` as default to preserve etcd budgets (010).
-- **Spec PR:** Who authors §4.x in [autosize-controller-spec.md](../../spec/autosize-controller-spec.md) before `implemented`.
 - **Webhook:** Whether global defaults (120) merge differently for selector-based profiles.
 
 ```mermaid

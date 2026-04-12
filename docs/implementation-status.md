@@ -39,6 +39,7 @@ Last reviewed: 2026-04-12 — Phase 4 per-node sketches + merged quantiles + `st
 | Reconcile loop, status update | §10, 080 | Done | `internal/controller/reconcile.go` |
 | Actuation: PATCH workload template | §11, 090 | Done | `internal/actuate`; gated by `AUTOSIZE_ACTUATION=true` |
 | RBAC / packaging baseline | 100 | Done | `config/rbac`, samples |
+| Bulk target selection (namespace / labels / cluster-wide) | §4, §10, [085](./LLD/autosize/085-bulk-target-selection.md) | Not started | Spec §4 + §10 describe intent; CRD/API still single `targetRef` only — tracking: `autosize-085` ([LLD index](./LLD/autosize/README.md)) |
 
 ## Learned state & heuristics (post-MVP)
 
