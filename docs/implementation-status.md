@@ -4,7 +4,7 @@
 **LLD index:** [LLD/autosize/README.md](./LLD/autosize/README.md)  
 **GitHub:** [muandane/saturdai](https://github.com/muandane/saturdai) — tracking issues use `[#NN](https://github.com/muandane/saturdai/issues/NN)` in **Issue** columns below.
 
-Last reviewed: 2026-04-12 — Phase 4 per-node sketches + merged quantiles + `status.binPacking` hints ([#18](https://github.com/muandane/saturdai/issues/18)); includes learned-state pipeline (ConfigMap `mlstate-*`, CUSUM, feedback bias, quadrant sketches, Holt–Winters forecasts), kubelet-all-fail `MetricsAvailable=False` + `ProfileReady` composite condition ([#12](https://github.com/muandane/saturdai/issues/12)).
+Last reviewed: 2026-04-12 — **Bulk selection shipped:** `NamespaceProfile` + `ClusterProfile` CRDs fan out to child `WorkloadProfile` objects ([LLD-085](./LLD/autosize/085-bulk-target-selection.md), `internal/controller`, `internal/target`). Also: Phase 4 per-node sketches + `status.binPacking` ([#18](https://github.com/muandane/saturdai/issues/18)); learned-state pipeline (`mlstate-*`, CUSUM, feedback, quadrants, HW); kubelet-all-fail `MetricsAvailable=False` + `ProfileReady` ([#12](https://github.com/muandane/saturdai/issues/12)).
 
 ## Legend
 
@@ -39,7 +39,7 @@ Last reviewed: 2026-04-12 — Phase 4 per-node sketches + merged quantiles + `st
 | Reconcile loop, status update | §10, 080 | Done | `internal/controller/reconcile.go` |
 | Actuation: PATCH workload template | §11, 090 | Done | `internal/actuate`; gated by `AUTOSIZE_ACTUATION=true` |
 | RBAC / packaging baseline | 100 | Done | `config/rbac`, samples |
-| Bulk target selection (namespace / labels / cluster-wide) | §4, §10, [085](./LLD/autosize/085-bulk-target-selection.md) | Not started | Spec §4 + §10 describe intent; CRD/API still single `targetRef` only — tracking: `autosize-085` ([LLD index](./LLD/autosize/README.md)) |
+| Bulk target selection (namespace / labels / cluster-wide) | §4, §10, [085](./LLD/autosize/085-bulk-target-selection.md) | Done | **`NamespaceProfile`** (namespaced selector) + **`ClusterProfile`** (cluster-scoped `namespaceSelector` + workload selector) create child **`WorkloadProfile`** CRs; conflict deny + `SelectorConflict`; CEL on CRDs; samples: [`config/samples/autosize_v1_namespaceprofile.yaml`](../config/samples/autosize_v1_namespaceprofile.yaml), [`config/samples/autosize_v1_clusterprofile.yaml`](../config/samples/autosize_v1_clusterprofile.yaml); tracking: `autosize-085` |
 
 ## Learned state & heuristics (post-MVP)
 

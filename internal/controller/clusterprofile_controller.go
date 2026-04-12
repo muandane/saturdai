@@ -36,7 +36,7 @@ import (
 )
 
 const (
-	clusterProfileResyncInterval  = 90 * time.Second
+	clusterProfileResyncInterval    = 90 * time.Second
 	clusterProfileDefaultMaxTargets = 200
 )
 
@@ -125,7 +125,7 @@ func (r *ClusterProfileReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		setCSPCondition(profile, autosizev1.ConditionTypeSelectorConflict, metav1.ConditionFalse, "NoConflict", "no overlapping selectors")
 	}
 
-	children, err := syncClusterChildren(ctx, r.Client, r.Scheme, profile, "ClusterProfile", profile.Spec.Policy, allFree)
+	children, err := syncClusterChildren(ctx, r.Client, profile, "ClusterProfile", profile.Spec.Policy, allFree)
 	if err != nil {
 		setCSPCondition(profile, autosizev1.ConditionTypeChildrenSynced, metav1.ConditionFalse, "SyncError", err.Error())
 		if uerr := r.patchCSPStatus(ctx, profile); uerr != nil {

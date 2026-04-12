@@ -43,7 +43,7 @@ func DetectConflicts(ctx context.Context, c client.Client, namespace string, key
 			Namespace: namespace,
 			Name:      wp.Spec.TargetRef.Name,
 		}
-		owner := wp.Name
+		var owner string
 		if isStandalone {
 			owner = fmt.Sprintf("WorkloadProfile/%s", wp.Name)
 		} else {

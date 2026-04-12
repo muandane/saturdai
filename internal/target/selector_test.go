@@ -13,6 +13,8 @@ import (
 	autosizev1 "github.com/muandane/saturdai/api/v1"
 )
 
+const deploymentKind = "Deployment"
+
 func scheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = appsv1.AddToScheme(s)
@@ -40,8 +42,8 @@ func TestListWorkloads_LabelSelector(t *testing.T) {
 		t.Fatalf("expected 2 keys, got %d: %v", len(keys), keys)
 	}
 	for _, k := range keys {
-		if k.Kind != "Deployment" {
-			t.Errorf("expected Deployment, got %s", k.Kind)
+		if k.Kind != deploymentKind {
+			t.Errorf("expected %s, got %s", deploymentKind, k.Kind)
 		}
 	}
 }
@@ -100,8 +102,8 @@ func TestListWorkloads_KindsFilter(t *testing.T) {
 	if len(keys) != 1 {
 		t.Fatalf("expected 1 key (Deployment only), got %d", len(keys))
 	}
-	if keys[0].Kind != "Deployment" {
-		t.Errorf("expected Deployment, got %s", keys[0].Kind)
+	if keys[0].Kind != deploymentKind {
+		t.Errorf("expected %s, got %s", deploymentKind, keys[0].Kind)
 	}
 }
 

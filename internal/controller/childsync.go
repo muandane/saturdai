@@ -115,7 +115,6 @@ func syncChildren(
 func syncClusterChildren(
 	ctx context.Context,
 	c client.Client,
-	scheme *runtime.Scheme,
 	parent client.Object,
 	parentKind string,
 	policy autosizev1.PolicySpec,

@@ -6,9 +6,9 @@ Low-level designs for the deterministic autosizing controller. Requirements: [au
 
 | Area | Packages / paths |
 |------|------------------|
-| API types & CRD | [`api/v1`](../../../api/v1), [`config/crd/bases`](../../../config/crd/bases) |
-| Reconcile | [`internal/controller`](../../../internal/controller) |
-| Target resolution | [`internal/target`](../../../internal/target) |
+| API types & CRD | [`api/v1`](../../../api/v1), [`config/crd/bases`](../../../config/crd/bases) — `WorkloadProfile`, `NamespaceProfile`, `ClusterProfile` |
+| Reconcile | [`internal/controller`](../../../internal/controller) — `WorkloadProfile` observe/actuate loop; `NamespaceProfile` / `ClusterProfile` fan-out to child `WorkloadProfile` |
+| Target resolution | [`internal/target`](../../../internal/target) — `Resolve`, list-by-selector, conflict detection |
 | Kubelet summary | [`internal/kubelet`](../../../internal/kubelet) |
 | EMA / DDSketch | [`internal/aggregate`](../../../internal/aggregate) |
 | Pod signals | [`internal/podsignals`](../../../internal/podsignals) |
@@ -31,7 +31,7 @@ Low-level designs for the deterministic autosizing controller. Requirements: [au
 | 060 | [Recommendation engine](./060-recommendation-engine.md) | Core | implemented | autosize-060 |
 | 070 | [Safety layer](./070-safety-layer.md) | Core | implemented | autosize-070 |
 | 080 | [Observe reconcile](./080-observe-reconcile.md) | Core | implemented | autosize-080 |
-| 085 | [Bulk target selection](./085-bulk-target-selection.md) | Core | draft | autosize-085 |
+| 085 | [Bulk target selection](./085-bulk-target-selection.md) | Core | implemented | autosize-085 |
 | 090 | [Actuation](./090-actuation.md) | Core | implemented | autosize-090 |
 | 100 | [Packaging and RBAC](./100-packaging-rbac.md) | Core | implemented | autosize-100 |
 | 110 | [Admission webhook](./110-admission-webhook.md) | Admission | implemented | autosize-110 |
