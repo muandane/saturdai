@@ -12,8 +12,8 @@ manager:
   replicas: 1
 
   image:
-    repository: controller
-    tag: latest
+    repository:  ghcr.io/muandane/saturdai
+    tag: 0.0.1
     pullPolicy: IfNotPresent
 
   ## Arguments
@@ -26,7 +26,9 @@ manager:
 
   ## Environment variables
   ##
-  env: []
+  env:
+  - name: AUTOSIZE_ACTUATION
+    value: "true"
 
   ## Env overrides (--set manager.envOverrides.VAR=value)
   ## Same name in env above: this value takes precedence.
