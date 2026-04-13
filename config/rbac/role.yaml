@@ -57,6 +57,8 @@ rules:
   - replicasets
   verbs:
   - get
+  - list
+  - watch
 - apiGroups:
   - autosize.saturdai.auto
   resources:
