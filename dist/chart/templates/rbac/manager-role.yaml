@@ -25,6 +25,7 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - namespaces
   - nodes
   - pods
   verbs:
@@ -57,6 +58,8 @@ rules:
 - apiGroups:
   - autosize.saturdai.auto
   resources:
+  - clusterprofiles
+  - namespaceprofiles
   - workloadprofiles
   verbs:
   - create
@@ -69,12 +72,16 @@ rules:
 - apiGroups:
   - autosize.saturdai.auto
   resources:
+  - clusterprofiles/finalizers
+  - namespaceprofiles/finalizers
   - workloadprofiles/finalizers
   verbs:
   - update
 - apiGroups:
   - autosize.saturdai.auto
   resources:
+  - clusterprofiles/status
+  - namespaceprofiles/status
   - workloadprofiles/status
   verbs:
   - get

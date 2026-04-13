@@ -1,0 +1,24 @@
+{{- if .Values.rbacHelpers.enable }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/name: {{ include "saturdai.name" . }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  name: {{ include "saturdai.resourceName" (dict "suffix" "namespaceprofile-admin-role" "context" $) }}
+rules:
+- apiGroups:
+  - autosize.saturdai.auto
+  resources:
+  - namespaceprofiles
+  verbs:
+  - '*'
+- apiGroups:
+  - autosize.saturdai.auto
+  resources:
+  - namespaceprofiles/status
+  verbs:
+  - get
+{{- end }}

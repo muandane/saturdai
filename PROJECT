@@ -33,7 +33,6 @@ resources:
   version: v1
 - api:
     crdVersion: v1
-    namespaced: false
   controller: true
   domain: saturdai.auto
   group: autosize

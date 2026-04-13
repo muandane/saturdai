@@ -146,6 +146,24 @@ spec:
           status:
             description: WorkloadProfileStatus defines the observed state of WorkloadProfile.
             properties:
+              binPacking:
+                description: BinPacking carries read-only hints for external automation
+                  (LLD-300).
+                properties:
+                  heteroScore:
+                    description: 'HeteroScore is in [0,1]: cross-node CPU mean spread
+                      when nodeCount>=2; else 0.'
+                    type: number
+                  nodeCount:
+                    description: NodeCount is distinct nodes with scheduled pods for
+                      this reconcile.
+                    format: int32
+                    type: integer
+                  observedAt:
+                    description: ObservedAt is when hints were computed.
+                    format: date-time
+                    type: string
+                type: object
               conditions:
                 description: conditions represent the current state of the WorkloadProfile
                   resource.
@@ -286,6 +304,35 @@ spec:
                           - sketch
                           - slopePositive
                           type: object
+                        nodeSketches:
+                          description: NodeSketches holds per-node DDSketches (bounded).
+                            Omitted when empty.
+                          items:
+                            description: NodeSketchEntry holds DDSketches for one
+                              node (Phase 4 / LLD-300).
+                            properties:
+                              cpuSketch:
+                                description: CPUSketch is base64-encoded DDSketch
+                                  protobuf for CPU (millicore means on this node).
+                                type: string
+                              lastSeen:
+                                description: LastSeen is when this node last had a
+                                  scheduled pod for the workload (reconcile time).
+                                format: date-time
+                                type: string
+                              memSketch:
+                                description: MemSketch is base64-encoded DDSketch
+                                  protobuf for memory (bytes).
+                                type: string
+                              nodeName:
+                                description: NodeName is the Kubernetes node name.
+                                minLength: 1
+                                type: string
+                            required:
+                            - nodeName
+                            type: object
+                          maxItems: 32
+                          type: array
                         restartCount:
                           format: int32
                           type: integer
@@ -359,8 +406,10 @@ spec:
                 type: array
               recommendations:
                 description: |-
-                  Recommendations are effective requests/limits after safety.Apply, with human-readable rationale.
-                  These match what actuation and the pod webhook apply when enabled.
+                  Recommendations are requests/limits after safety.Apply, with human-readable rationale.
+                  CPU (and memory when actuation is not skipping memory) match what actuation and the pod webhook apply when enabled.
+                  Under trend guard (slopePositive), memory may still reflect uncapped engine intent while the live template stays frozen;
+                  rationale includes "trend_guard" and actuation omits memory PATCH for that container (see spec §9).
                 items:
                   description: Recommendation is a deterministic suggested patch for
                     one container.
