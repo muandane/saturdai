@@ -19,13 +19,6 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - events
-  verbs:
-  - create
-  - patch
-- apiGroups:
-  - ""
-  resources:
   - namespaces
   - nodes
   - pods
@@ -39,6 +32,14 @@ rules:
   - nodes/proxy
   verbs:
   - get
+- apiGroups:
+  - ""
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
 - apiGroups:
   - apps
   resources:
