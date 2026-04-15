@@ -41,3 +41,17 @@ func Test_restartPauseAfterReconcile(t *testing.T) {
 		})
 	}
 }
+
+func Test_restartPauseAfterReconcile_countsDownAcrossAllPauseCycles(t *testing.T) {
+	pause := restartPauseAfterReconcile(true, true, 0)
+	if pause != downsizePauseCyclesOnRestartSpike {
+		t.Fatalf("expected initial pause %d, got %d", downsizePauseCyclesOnRestartSpike, pause)
+	}
+	for i := downsizePauseCyclesOnRestartSpike; i > 0; i-- {
+		pause = restartPauseAfterReconcile(true, false, pause)
+		want := i - 1
+		if pause != want {
+			t.Fatalf("countdown step from %d got %d want %d", i, pause, want)
+		}
+	}
+}

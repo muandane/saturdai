@@ -210,7 +210,7 @@ Bulk policy uses **separate CRDs** so `WorkloadProfile` stays a single-workload 
 | `TargetResolved` | The referenced Deployment/StatefulSet exists and was resolved (child profiles from `NamespaceProfile` / `ClusterProfile` use the same condition). |
 | `MetricsAvailable` | Kubelet stats were collected for this evaluation cycle when required (pods scheduled to nodes), and aggregates/recommendations were updated |
 | `ProfileReady` | `TargetResolved` **and** `MetricsAvailable` are both True |
-| `ActuationApplied` | In-place Pod resize completed (`Applied`), no resize was needed (`Noop`), or partial failures were observed (`False` + `PartialFailure`) |
+| `ActuationApplied` | In-place Pod resize completed (`Applied`), no resize was needed (`Noop`), or partial failures were observed (`False` + `PartialFailure`, with optional reason buckets and restart-policy warning suffix) |
 
 If kubelet summary fetch fails for **all** nodes that host scheduled pods, set `MetricsAvailable=False` (reason such as `KubeletUnavailable`), **do not** advance `lastEvaluated` or emit a successful “metrics processed” outcome for that cycle; return **`RequeueAfter: max(10s, spec.collectionIntervalSeconds)`** with **nil error** so the requeue applies (controller-runtime ignores `RequeueAfter` when `err != nil`).
 
@@ -507,6 +507,12 @@ func (r *WorkloadProfileReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 - `PATCH /api/v1/namespaces/{ns}/pods/{name}/resize` — container resources on running Pods
 - Keeps parent workload templates unchanged (no rollout-triggering template mutation)
+- If changed resources have container `resizePolicy=RestartContainer`, controller still applies resize but annotates condition/metrics with restart-policy warning signal.
+
+### Actuation observability
+
+- `autosize_actuation_total{result=success|noop|error}`
+- `autosize_actuation_pod_resize_reason_total{reason=infeasible|deferred|forbidden|other|unknown|restart_policy_requires_restart}`
 
 ### Never
 

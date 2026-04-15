@@ -37,7 +37,7 @@ Last reviewed: 2026-04-12 — **Bulk selection shipped:** `NamespaceProfile` + `
 | `metricsRecommendations` vs `recommendations` | §4, §9, 060–070 | Done | Pre/post safety |
 | Status conditions (`TargetResolved`, `MetricsAvailable`, `ProfileReady`) | §4, §12 | Done | `ProfileReady` True iff target resolved and metrics available; kubelet all-fail sets `MetricsAvailable=False` |
 | Reconcile loop, status update | §10, 080 | Done | `internal/controller/reconcile.go` |
-| Actuation: in-place Pod resize (`pods/resize`) | §11, 090 | Done | `internal/actuate`; gated by `AUTOSIZE_ACTUATION=true`; does not patch parent templates |
+| Actuation: in-place Pod resize (`pods/resize`) | §11, 090 | Done | `internal/actuate`; gated by `AUTOSIZE_ACTUATION=true`; does not patch parent templates; reports `ActuationApplied` + bucketed reason metrics |
 | RBAC / packaging baseline | 100 | Done | `config/rbac`, samples |
 | Bulk target selection (namespace / labels / cluster-wide) | §4, §10, [085](./LLD/autosize/085-bulk-target-selection.md) | Done | **`NamespaceProfile`** (namespaced selector) + **`ClusterProfile`** (cluster-scoped `namespaceSelector` + workload selector) create child **`WorkloadProfile`** CRs; conflict deny + `SelectorConflict`; CEL on CRDs; samples: [`config/samples/autosize_v1_namespaceprofile.yaml`](../config/samples/autosize_v1_namespaceprofile.yaml), [`config/samples/autosize_v1_clusterprofile.yaml`](../config/samples/autosize_v1_clusterprofile.yaml); tracking: `autosize-085` |
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -295,9 +297,29 @@ func (r *WorkloadProfileReconciler) runObserveAndActuate(
 		return nil, nil
 	}
 
-	actuationResult, err := actuate.Apply(ctx, r.Client, pods, finalRecs, safe.SkipMemory)
+	return r.applyActuation(ctx, profile, pods, finalRecs, safe.SkipMemory)
+}
+
+func (r *WorkloadProfileReconciler) applyActuation(
+	ctx context.Context,
+	profile *autosizev1.WorkloadProfile,
+	pods []corev1.Pod,
+	recommendations []autosizev1.Recommendation,
+	skipMemory map[string]bool,
+) (*time.Duration, error) {
+	actuationResult, err := actuate.Apply(ctx, r.Client, pods, recommendations, skipMemory)
+	observeActuationMetrics(actuationResult, err)
+	reasonSummary := formatReasonCounts(actuationResult.ReasonCounts)
+	warningSuffix := formatRestartPolicyWarning(actuationResult.RestartPolicyWarnings)
 	if err != nil {
-		setCondition(profile, autosizev1.ConditionTypeActuationApplied, metav1.ConditionFalse, "PartialFailure", err.Error())
+		msg := err.Error()
+		if reasonSummary != "" {
+			msg = msg + "; reasons=" + reasonSummary
+		}
+		if warningSuffix != "" {
+			msg = msg + warningSuffix
+		}
+		setCondition(profile, autosizev1.ConditionTypeActuationApplied, metav1.ConditionFalse, "PartialFailure", msg)
 		syncProfileReady(profile)
 		if persistErr := r.persistStatus(ctx, profile); persistErr != nil {
 			return nil, persistErr
@@ -306,14 +328,26 @@ func (r *WorkloadProfileReconciler) runObserveAndActuate(
 		return &d, nil
 	}
 	if actuationResult.Resized == 0 {
-		setCondition(profile, autosizev1.ConditionTypeActuationApplied, metav1.ConditionTrue, "Noop", "no pod resize needed")
+		msg := "no pod resize needed"
+		if warningSuffix != "" {
+			msg += warningSuffix
+		}
+		setCondition(profile, autosizev1.ConditionTypeActuationApplied, metav1.ConditionTrue, "Noop", msg)
 		syncProfileReady(profile)
 		if persistErr := r.persistStatus(ctx, profile); persistErr != nil {
 			return nil, persistErr
 		}
 		return nil, nil
 	}
-	setCondition(profile, autosizev1.ConditionTypeActuationApplied, metav1.ConditionTrue, "Applied", fmt.Sprintf("resized=%d noop=%d", actuationResult.Resized, actuationResult.Noop))
+	actuationReason := "Applied"
+	if actuationResult.RestartPolicyWarnings > 0 {
+		actuationReason = "AppliedWithRestartPolicyWarning"
+	}
+	msg := fmt.Sprintf("resized=%d noop=%d", actuationResult.Resized, actuationResult.Noop)
+	if warningSuffix != "" {
+		msg += warningSuffix
+	}
+	setCondition(profile, autosizev1.ConditionTypeActuationApplied, metav1.ConditionTrue, actuationReason, msg)
 	profile.Status.LastApplied = &metav1.Time{Time: r.now()}
 	if err := r.persistStatus(ctx, profile); err != nil {
 		return nil, err
@@ -444,6 +478,29 @@ func conditionMessage(profile *autosizev1.WorkloadProfile, typ string) string {
 		}
 	}
 	return ""
+}
+
+func formatReasonCounts(reasonCounts map[string]int) string {
+	if len(reasonCounts) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(reasonCounts))
+	for reason := range reasonCounts {
+		keys = append(keys, reason)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, reason := range keys {
+		parts = append(parts, reason+":"+strconv.Itoa(reasonCounts[reason]))
+	}
+	return strings.Join(parts, ",")
+}
+
+func formatRestartPolicyWarning(count int) string {
+	if count <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("; restart_policy_requires_restart=%d", count)
 }
 
 // syncProfileReady sets ProfileReady to True iff TargetResolved and MetricsAvailable are True.

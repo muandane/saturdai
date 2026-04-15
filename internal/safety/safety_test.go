@@ -279,3 +279,44 @@ func TestApply_PauseDownsize_allowsIncreaseAboveCurrent(t *testing.T) {
 		t.Fatalf("rationale should not contain pause_downsize when increasing: %q", r.Rationale)
 	}
 }
+
+func TestApply_MultiCycleDownsizeIsGradual(t *testing.T) {
+	profile := &autosizev1.WorkloadProfile{}
+	currentCPU := resource.MustParse("1000m")
+	currentMem := resource.MustParse("1000Mi")
+	for cycle := 1; cycle <= 3; cycle++ {
+		cur := map[string]corev1.ResourceRequirements{
+			"app": {
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    currentCPU,
+					corev1.ResourceMemory: currentMem,
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    currentCPU,
+					corev1.ResourceMemory: currentMem,
+				},
+			},
+		}
+		base := []autosizev1.Recommendation{
+			{
+				ContainerName: "app",
+				CPURequest:    resource.MustParse("1m"),
+				CPULimit:      resource.MustParse("1m"),
+				MemoryRequest: resource.MustParse("1Mi"),
+				MemoryLimit:   resource.MustParse("1Mi"),
+			},
+		}
+		res := Apply(profile, base, cur, podsignals.NewSnapshot(), time.Unix(0, 0), false)
+		r := res.Recommendations[0]
+		wantCPUFloor := int64(math.Ceil(float64(currentCPU.MilliValue()) * decreaseFloorRatio))
+		if r.CPURequest.MilliValue() != wantCPUFloor {
+			t.Fatalf("cycle %d cpu floor got %dm want %dm", cycle, r.CPURequest.MilliValue(), wantCPUFloor)
+		}
+		wantMemFloor := memoryQtyAligned(int64(math.Ceil(float64(currentMem.Value())*decreaseFloorRatio)), false)
+		if r.MemoryRequest.Cmp(wantMemFloor) != 0 {
+			t.Fatalf("cycle %d memory floor got %s want %s", cycle, r.MemoryRequest.String(), wantMemFloor.String())
+		}
+		currentCPU = r.CPURequest
+		currentMem = r.MemoryRequest
+	}
+}

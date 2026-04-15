@@ -30,6 +30,8 @@ type Result struct {
     Resized int
     Noop    int
     Failed  int
+    ReasonCounts map[string]int // bucketed: infeasible|deferred|forbidden|other|unknown
+    RestartPolicyWarnings int   // count of resize operations requiring RestartContainer policy
 }
 
 func Apply(ctx context.Context, c client.Client, pods []corev1.Pod, recs []Recommendation, skipMemory map[string]bool) (Result, error)
@@ -52,9 +54,10 @@ func Apply(ctx context.Context, c client.Client, pods []corev1.Pod, recs []Recom
 
 | Failure | Behavior |
 |---------|----------|
-| Pod resize rejected/deferred | Record `ActuationApplied=False` with reason `PartialFailure`; requeue with bounded backoff |
+| Pod resize rejected/deferred | Record `ActuationApplied=False` with reason `PartialFailure`; include bucketed reason summary; requeue with bounded backoff |
 | Invalid quantity | Should not happen if 060/070 validated — return error, set condition |
 | No pod resource diffs | `ActuationApplied=True` with reason `Noop`; do not bump `lastApplied` |
+| Container resizePolicy `RestartContainer` on changed resource | Keep apply path, but emit restart-policy warning in condition message/metrics |
 
 ## Security / RBAC
 
@@ -64,6 +67,7 @@ func Apply(ctx context.Context, c client.Client, pods []corev1.Pod, recs []Recom
 ## Observability
 
 - Counter: `autosize_actuation_total{result=success|noop|error}`
+- Counter: `autosize_actuation_pod_resize_reason_total{reason=infeasible|deferred|forbidden|other|unknown|restart_policy_requires_restart}`
 - Condition: `ActuationApplied` with `Applied|Noop|PartialFailure`
 
 ## Test plan
