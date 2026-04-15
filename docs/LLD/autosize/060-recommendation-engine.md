@@ -17,7 +17,7 @@ Compute the **metrics-phase** recommendation list (CPU/memory request and limit 
 
 **In scope:** Query P40/P50/P70/P90/P95/P99 from sketches; apply mode table; apply min/max from spec; merge prediction into burst CPU limit rule where spec says `max(P99, peak_observed)`.
 
-**Out of scope:** 30% decrease cap, cooldown, OOM overrides, slope guard (070), PATCH (090).
+**Out of scope:** safety decrease cap/cooldown/overrides/slope guard (070), actuation (090).
 
 ## Dependencies
 

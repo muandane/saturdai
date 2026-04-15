@@ -24,6 +24,8 @@ const (
 	ConditionTypeMetricsAvailable = "MetricsAvailable"
 	// ConditionTypeProfileReady is a composite condition: True when TargetResolved and MetricsAvailable are both True.
 	ConditionTypeProfileReady = "ProfileReady"
+	// ConditionTypeActuationApplied is True when in-place pod resize actuation completed for the current reconcile.
+	ConditionTypeActuationApplied = "ActuationApplied"
 )
 
 // Condition types for NamespaceProfile and ClusterProfile status.conditions.

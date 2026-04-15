@@ -34,6 +34,13 @@ rules:
   - get
 - apiGroups:
   - ""
+  resources:
+  - pods/resize
+  verbs:
+  - patch
+  - update
+- apiGroups:
+  - ""
   - events.k8s.io
   resources:
   - events
@@ -48,8 +55,6 @@ rules:
   verbs:
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - apps
@@ -57,8 +62,6 @@ rules:
   - replicasets
   verbs:
   - get
-  - list
-  - watch
 - apiGroups:
   - autosize.saturdai.auto
   resources:

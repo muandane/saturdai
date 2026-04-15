@@ -101,7 +101,7 @@ Optional: short mermaid sequence diagram when control flow is non-obvious.
 | **EMA** | Exponential moving average; short α=0.2, long α=0.05 per spec. |
 | **DDSketch** | DataDog sketch — bounded-memory quantile structure; serialized as base64 protobuf in status. |
 | **Observe-only reconcile** | Reconciler path that updates `WorkloadProfile` status but does not PATCH the workload (LLD-080 milestone). |
-| **Actuation** | PATCH of workload pod template resources (LLD-090). |
+| **Actuation** | In-place Pod resource resize via `pods/resize` (LLD-090). |
 | **Cold start** | No prior aggregates or recommendations; webhook / defaults apply until data exists. |
 
 ## Review checklist (before marking `reviewed`)

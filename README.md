@@ -56,7 +56,10 @@ For global default resources used when no profile matches a pod, apply [`config/
 1. For each managed workload, the controller finds pods, reads **per-node kubelet summary** stats, and updates **rolling aggregates** (EMA, DDSketch-backed percentiles) in status.
 2. A **recommendation engine** applies one of four modes (for example cost vs resilience). A **safety layer** enforces floors, cooldowns, and guards around restarts and memory trends.
 3. **Learned state** that does not belong in etcd-heavy status is stored in a **ConfigMap** per profile (`mlstate-<name>`), owner-referenced for cleanup.
-4. **Actuation** (PATCH pod template resources) is **disabled unless** you set `AUTOSIZE_ACTUATION=true` on the manager Deployment—use observe-only until you are ready.
+4. **Actuation** (in-place Pod resize via `pods/resize`) is **disabled unless** you set `AUTOSIZE_ACTUATION=true` on the manager Deployment—use observe-only until you are ready.
+5. **Actuation telemetry** is exported on the controller metrics endpoint:
+   - `autosize_actuation_total{result=success|noop|error}`
+   - `autosize_actuation_pod_resize_reason_total{reason=...}` (bucketed failure/restart-policy signals)
 
 ---
 
@@ -107,7 +110,7 @@ Other useful targets: `make help`, `make lint`, `make lint-fix` (if configured i
 
 ## Actuation
 
-To allow the controller to PATCH workload templates:
+To allow the controller to resize running Pods in place:
 
 ```yaml
 env:
