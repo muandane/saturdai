@@ -1,20 +1,20 @@
-# LLD-090: Actuation (workload PATCH)
+# LLD-090: Actuation (Pod resize subresource)
 
 ## Purpose
 
-Apply safe recommendations to the **Deployment** or **StatefulSet** pod template `resources` via strategic merge PATCH (or JSON patch), triggering rolling updates per spec §11. Never mutate Pods directly. Update `status.lastApplied` when patch succeeds and safety (070) allows. Integrates with the loop in spec §10.
+Apply safe recommendations to **running Pods** via the Pod `resize` subresource (`pods/resize`). This avoids parent workload template mutations and rollout-triggered restarts. Update `status.lastApplied` only when at least one Pod resize succeeds.
 
 ## Spec traceability
 
 | Spec § | Requirement (summary) |
 |--------|------------------------|
-| §11 | PATCH apps/v1 deployment/statefulset; container resources in pod template; no direct pod mutation |
+| §11 | In-place Pod resource resize via `pods/resize` |
 | §9 | `lastApplied` for cooldown |
-| §16 | No pod mutation |
+| §16 | No direct mutation of parent workload templates for actuation |
 
 ## Scope and non-goals
 
-**In scope:** Build patch from diff between current template resources and desired recommendations; container name matching; idempotent no-op when already equal.
+**In scope:** Build per-Pod desired resources from recommendations; call Pod resize subresource; idempotent no-op when already equal.
 
 **Out of scope:** Webhook injection (110), HPA interaction (excluded by spec §2).
 
@@ -26,53 +26,52 @@ Apply safe recommendations to the **Deployment** or **StatefulSet** pod template
 ## Data model / API surface
 
 ```go
-func BuildResourcePatch(
-    target *unstructured.Unstructured,
-    recs []Recommendation,
-) (*Patch, error)
+type Result struct {
+    Resized int
+    Noop    int
+    Failed  int
+}
 
-func ApplyActuation(ctx context.Context, c client.Client, target client.Object, patch *Patch) error
+func Apply(ctx context.Context, c client.Client, pods []corev1.Pod, recs []Recommendation, skipMemory map[string]bool) (Result, error)
 ```
 
-**Matching:** Map `recs` by `containerName` to `spec.template.spec.containers[].name`.
+**Matching:** Map `recs` by `containerName` to `pod.spec.containers[].name`.
 
 **Quantities:** Serialize as canonical k8s quantity strings matching API expectations.
 
 ## Algorithms and invariants
 
-1. Read live object **resourceVersion**.
-2. If `ShouldPatch` from 070 is false → skip PATCH; still update status recommendations in 080 order.
-3. If desired equals current for all autosized containers → skip PATCH; **do not** bump `lastApplied` (no application occurred).
-4. On success: set `status.lastApplied = now` **after** API returns success.
-5. **Ordering with status update:** Option A: patch then status in same reconcile; Option B: patch then immediate status — **prefer** patch first, then status update in one flow; if status update fails, next loop may retry patch (idempotent).
-
-### StatefulSet specifics
-
-- Same patch path; note **ordered rollout** behavior; document pod management policy if parallel (user responsibility).
+1. If `ShouldPatch` from 070 is false → skip actuation; still update status recommendations.
+2. For each selected Pod, compute desired container resources from recommendation map.
+3. If desired equals current Pod resources → count as noop.
+4. If changed, call `SubResource(\"resize\").Update(...)` for that Pod.
+5. Aggregate result: `{resized, noop, failed}`.
+6. Set `status.lastApplied` only when `resized > 0`.
 
 ## Failure modes and behavior
 
 | Failure | Behavior |
 |---------|----------|
-| Conflict 409 | Requeue; refresh from API |
+| Pod resize rejected/deferred | Record `ActuationApplied=False` with reason `PartialFailure`; requeue with bounded backoff |
 | Invalid quantity | Should not happen if 060/070 validated — return error, set condition |
-| Admission webhook rejects pod template | Surface event; backoff |
+| No pod resource diffs | `ActuationApplied=True` with reason `Noop`; do not bump `lastApplied` |
 
 ## Security / RBAC
 
-- `patch` on `deployments`, `statefulsets` (100).
+- `patch`/`update` on `pods/resize`.
+- `get`/`list`/`watch` on `pods`.
 
 ## Observability
 
 - Counter: `autosize_actuation_total{result=success|noop|error}`
-- Log patch diff summary (reduced verbosity)
+- Condition: `ActuationApplied` with `Applied|Noop|PartialFailure`
 
 ## Test plan
 
-- **Integration:** envtest patch Deployment; assert new `resourceVersion` and template CPU request.
-- **Unit:** BuildResourcePatch only touches named containers; preserves others.
-- **Acceptance:** No-op when recommendations match live template.
-- **e2e (kind):** Rolling update completes; pods get new limits.
+- **Unit:** Pod resource patching by container name, skip-memory behavior, noop detection, partial-failure aggregation.
+- **Integration:** resize path updates Pod resources without parent template mutation.
+- **Acceptance:** No parent rollout is triggered by actuation.
+- **e2e (kind):** Pod resources change in-place and restart count remains stable.
 
 ## Rollout / migration
 

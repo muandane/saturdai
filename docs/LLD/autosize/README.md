@@ -14,7 +14,7 @@ Low-level designs for the deterministic autosizing controller. Requirements: [au
 | Pod signals | [`internal/podsignals`](../../../internal/podsignals) |
 | Recommendations | [`internal/recommend`](../../../internal/recommend) |
 | Safety | [`internal/safety`](../../../internal/safety) |
-| Actuation (PATCH) | [`internal/actuate`](../../../internal/actuate) |
+| Actuation (`pods/resize`) | [`internal/actuate`](../../../internal/actuate) |
 | Spec defaults (in-process + ConfigMap) | [`internal/defaults`](../../../internal/defaults) |
 | Pod admission webhook | [`internal/webhook`](../../../internal/webhook) |
 
@@ -56,7 +56,7 @@ Use **one issue per LLD** (or one epic per phase with child issues). Suggested t
 | `[LLD-070] Safety layer (cooldown, overrides, rationale)` | 070 |
 | `[LLD-080] Observe-only reconcile` | 080 |
 | `[LLD-085] Bulk target selection` (`NamespaceProfile`, `ClusterProfile`, fan-out) | 085 |
-| `[LLD-090] Actuation (workload PATCH)` | 090 |
+| `[LLD-090] Actuation (pod resize subresource)` | 090 |
 | `[LLD-100] Packaging, RBAC, observability baseline` | 100 |
 | `[LLD-110] Admission webhook (cold-start inject)` | 110 |
 | `[LLD-120] Global defaults ConfigMap` | 120 |

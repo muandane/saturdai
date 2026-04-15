@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Apply spec §9 mechanisms to raw recommendations from 060: max **30% decrease** per cycle, unlimited increase, cooldown vs `lastApplied`, event overrides (OOM, throttling, restart spike), memory trend guard (`slopePositive`), and final **`rationale`** strings. Output is the **safe** recommendation list and a boolean `shouldPatch` / override flags for 080/090.
+Apply spec §9 mechanisms to raw recommendations from 060: max **10% decrease** per cycle (90% floor), unlimited increase, cooldown vs `lastApplied`, event overrides (OOM, throttling, restart spike), memory trend guard (`slopePositive`), and final **`rationale`** strings. Output is the **safe** recommendation list and a boolean `shouldPatch` / override flags for 080/090.
 
 ## Spec traceability
 
@@ -44,15 +44,15 @@ func Apply(
 ```
 
 - **Throttle ratios** live on `sig.ThrottleRatios` (kubelet-derived in reconcile).
-- **`blockDownsize`:** `true` when `status.downsizePauseCyclesRemaining > 0` or when any container’s restart delta indicates a spike this reconcile (computed in reconcile; see 050). When `true`, decrease clamps become **hold at current template** instead of the 70% floor; rationale includes `safety: pause_downsize`.
+- **`blockDownsize`:** `true` when `status.downsizePauseCyclesRemaining > 0` or when any container’s restart delta indicates a spike this reconcile (computed in reconcile; see 050). When `true`, decrease clamps become **hold at current template** instead of the 90% floor; rationale includes `safety: pause_downsize`.
 
-**State in status:** `downsizePauseCyclesRemaining int32` on `WorkloadProfile` — reconciler sets it to `2` after a spike (delta > 3 with baseline) and decrements each reconcile; persisted for crash safety ([`restart_pause.go`](../../../internal/controller/restart_pause.go)).
+**State in status:** `downsizePauseCyclesRemaining int32` on `WorkloadProfile` — reconciler sets it to `4` after a spike (delta > 3 with baseline) and decrements each reconcile; persisted for crash safety ([`restart_pause.go`](../../../internal/controller/restart_pause.go)).
 
 ## Algorithms and invariants
 
-### Max decrease 30%
+### Max decrease 10%
 
-For each quantity (request/limit): if `new < current`, require `new >= current * 0.7` (floating compare in millis then round). If violated, **clamp** `new` to `ceil(current * 0.7)` and append a rationale fragment such as `; safety: decrease_step <axis> <before>-><after> (floor 70% of current <current>)` so operators can see why effective resources differ from sketch-only percentiles.
+For each quantity (request/limit): if `new < current`, require `new >= current * 0.9` (floating compare in millis then round). If violated, **clamp** `new` to `ceil(current * 0.9)` and append a rationale fragment such as `; safety: decrease_step <axis> <before>-><after> (floor 90% of current <current>)` so operators can see why effective resources differ from sketch-only percentiles.
 
 **Status fields:** `status.metricsRecommendations` reflects the engine output before this clamp; `status.recommendations` reflects the clamped/effective list used for PATCH and webhook injection.
 
@@ -70,15 +70,15 @@ For each quantity (request/limit): if `new < current`, require `new >= current *
 |-------|-----------|--------|
 | OOMKilled | `lastOOMKill` within lookback (e.g. 10m) | `memLimit *= 1.5`, mark applied, rationale `override: OOMKill` |
 | High CPU throttle | `throttledUsage / usage > 0.5` when usage > epsilon | `cpuLimit *= 1.25` |
-| Restart spike | delta > 3 | set pause downsizing **2 reconcile cycles** |
+| Restart spike | delta > 3 | set pause downsizing **4 reconcile cycles** |
 
-**Ordering:** Trend guard → OOM override → throttle override → decrease clamps (70% floor or pause hold). Overrides apply **before** the clamp pass so memory/CPU **increases** from OOM/throttle still apply; only downward moves are limited by clamp or pause.
+**Ordering:** Trend guard → OOM override → throttle override → decrease clamps (90% floor or pause hold). Overrides apply **before** the clamp pass so memory/CPU **increases** from OOM/throttle still apply; only downward moves are limited by clamp or pause.
 
 ### Trend guard
 
-- If `slopePositive` for container memory: **omit memory from actuation** (PATCH leaves template memory unchanged — 090); **do not** apply 70% decrease clamps to memory for that container. Engine values may still appear in `status.metricsRecommendations` / `status.recommendations` with rationale `trend_guard: memory slope positive` (spec §9).
+- If `slopePositive` for container memory: **omit memory from actuation** (Pod resize leaves memory unchanged for that container — 090); **do not** apply decrease clamps to memory for that container. Engine values may still appear in `status.metricsRecommendations` / `status.recommendations` with rationale `trend_guard: memory slope positive` (spec §9).
 
-**Status vs live template:** `status.recommendations` memory for that container can differ from the workload template (e.g. engine-proposed downsize without the 70% floor) while PATCH leaves template memory unchanged until the guard clears — intentional traceability, not “strip from status.”
+**Status vs live resources:** `status.recommendations` memory for that container can differ from the currently applied Pod memory (for example engine-proposed downsize while trend guard freezes memory) — intentional traceability, not “strip from status.”
 
 ### Rationale
 
@@ -102,7 +102,7 @@ For each quantity (request/limit): if `new < current`, require `new >= current *
 
 ## Test plan
 
-- **Table tests:** cooldown boundary ±1s; 30% clamp from 1000m → proposed 600m → expect 700m.
+- **Table tests:** cooldown boundary ±1s; 10% clamp from 1000m → proposed 600m → expect 900m.
 - **Overrides:** OOM sets mem limit; throttle ratio 0.51 triggers CPU bump.
 - **Restart spike:** sets pause flag; two reconciles decrement.
 - **Slope:** memory omitted from PATCH (`SkipMemory`); template memory unchanged.

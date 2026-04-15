@@ -15,6 +15,8 @@ import (
 	"github.com/muandane/saturdai/internal/podsignals"
 )
 
+const decreaseFloorRatio = 0.9
+
 // Result is the output of Apply.
 type Result struct {
 	Recommendations []autosizev1.Recommendation
@@ -163,14 +165,15 @@ func applyDecreaseClamps(
 	}
 }
 
-// appendDecreaseStepNote appends a rationale fragment when the 70% decrease clamp changes a quantity.
+// appendDecreaseStepNote appends a rationale fragment when the decrease clamp changes a quantity.
 func appendDecreaseStepNote(rationale, axis string, before, after, current resource.Quantity) string {
 	if after.Cmp(before) == 0 {
 		return rationale
 	}
+	floorPercent := int(math.Round(decreaseFloorRatio * 100))
 	return rationale + fmt.Sprintf(
-		"; safety: decrease_step %s %s->%s (floor 70%% of current %s)",
-		axis, before.String(), after.String(), current.String(),
+		"; safety: decrease_step %s %s->%s (floor %d%% of current %s)",
+		axis, before.String(), after.String(), floorPercent, current.String(),
 	)
 }
 
@@ -204,7 +207,7 @@ func holdDecreaseMemory(newQ, curQ resource.Quantity, isLimit bool) resource.Qua
 	return memoryQtyAligned(curQ.Value(), isLimit)
 }
 
-// clampDecreaseCPU applies a 70% floor of current when the new recommendation is lower (millicores).
+// clampDecreaseCPU applies a decrease floor of current when the new recommendation is lower (millicores).
 func clampDecreaseCPU(newQ, curQ resource.Quantity) resource.Quantity {
 	if newQ.Cmp(curQ) >= 0 {
 		return newQ
@@ -214,21 +217,21 @@ func clampDecreaseCPU(newQ, curQ resource.Quantity) resource.Quantity {
 	}
 	nm, cm := newQ.MilliValue(), curQ.MilliValue()
 	if cm != 0 || nm != 0 {
-		minM := int64(math.Ceil(float64(cm) * 0.7))
+		minM := int64(math.Ceil(float64(cm) * decreaseFloorRatio))
 		if nm < minM {
 			return *resource.NewMilliQuantity(minM, resource.DecimalSI)
 		}
 		return newQ
 	}
 	nv, cv := newQ.Value(), curQ.Value()
-	minV := int64(math.Ceil(float64(cv) * 0.7))
+	minV := int64(math.Ceil(float64(cv) * decreaseFloorRatio))
 	if nv < minV {
 		return *resource.NewQuantity(minV, newQ.Format)
 	}
 	return newQ
 }
 
-// clampDecreaseMemory applies a 70% floor of current when the new recommendation is lower.
+// clampDecreaseMemory applies a decrease floor of current when the new recommendation is lower.
 // isLimit selects ceil vs floor to whole MiB for kubectl-friendly BinarySI serialization.
 func clampDecreaseMemory(newQ, curQ resource.Quantity, isLimit bool) resource.Quantity {
 	if newQ.Cmp(curQ) >= 0 {
@@ -238,7 +241,7 @@ func clampDecreaseMemory(newQ, curQ resource.Quantity, isLimit bool) resource.Qu
 		return memoryQtyAligned(newQ.Value(), isLimit)
 	}
 	nv, cv := newQ.Value(), curQ.Value()
-	minV := int64(math.Ceil(float64(cv) * 0.7))
+	minV := int64(math.Ceil(float64(cv) * decreaseFloorRatio))
 	if nv < minV {
 		return memoryQtyAligned(minV, isLimit)
 	}

@@ -17,8 +17,8 @@ func TestClampDecreaseCPU_MilliFloor(t *testing.T) {
 	cur := resource.MustParse("1000m")
 	newQ := resource.MustParse("100m")
 	got := clampDecreaseCPU(newQ, cur)
-	// 70% of 1000m = 700m
-	want := resource.MustParse("700m")
+	// 90% of 1000m = 900m
+	want := resource.MustParse("900m")
 	if got.Cmp(want) != 0 {
 		t.Fatalf("got %s want %s", got.String(), want.String())
 	}
@@ -37,7 +37,7 @@ func TestClampDecreaseMemory_BytesBinarySI(t *testing.T) {
 	cur := resource.MustParse("100Mi")
 	newQ := resource.MustParse("10Mi")
 	got := clampDecreaseMemory(newQ, cur, false)
-	want := resource.MustParse("70Mi")
+	want := resource.MustParse("90Mi")
 	if got.Cmp(want) != 0 {
 		t.Fatalf("got %s (%d) want %s (%d)", got.String(), got.Value(), want.String(), want.Value())
 	}
@@ -70,7 +70,7 @@ func TestClampDecreaseMemory_LimitUsesCeilMiB(t *testing.T) {
 	cur := resource.MustParse("256Mi")
 	newQ := resource.MustParse("1Mi")
 	got := clampDecreaseMemory(newQ, cur, true)
-	minV := int64(math.Ceil(float64(cur.Value()) * 0.7))
+	minV := int64(math.Ceil(float64(cur.Value()) * decreaseFloorRatio))
 	want := ceilMiB(minV)
 	if got.Cmp(want) != 0 {
 		t.Fatalf("limit clamp got %s want %s (ceil MiB of %d)", got.String(), want.String(), minV)
@@ -101,10 +101,10 @@ func TestApply_UsesSeparateCPUAndMemoryClamps(t *testing.T) {
 		t.Fatalf("len %d", len(res.Recommendations))
 	}
 	r := res.Recommendations[0]
-	if r.CPURequest.String() != "700m" {
-		t.Fatalf("CPU request got %s want 700m", r.CPURequest.String())
+	if r.CPURequest.String() != "900m" {
+		t.Fatalf("CPU request got %s want 900m", r.CPURequest.String())
 	}
-	wantMem := resource.MustParse("70Mi")
+	wantMem := resource.MustParse("90Mi")
 	if r.MemoryRequest.Cmp(wantMem) != 0 {
 		t.Fatalf("memory request got %s want %s", r.MemoryRequest.String(), wantMem.String())
 	}
@@ -230,7 +230,7 @@ func TestApply_TrendGuard_skipsMemoryClampsAndSetsSkipMemory(t *testing.T) {
 	if !strings.Contains(r.Rationale, "trend_guard") {
 		t.Fatalf("rationale should note trend_guard: %q", r.Rationale)
 	}
-	// Engine memory values pass through without decrease clamp when skipMem (not lowered toward 70% floor).
+	// Engine memory values pass through without decrease clamp when skipMem (not lowered toward the downsize floor).
 	if r.MemoryRequest.Cmp(resource.MustParse("10Mi")) != 0 {
 		t.Fatalf("memory request got %s want 10Mi (no clamp under trend guard)", r.MemoryRequest.String())
 	}
@@ -241,8 +241,8 @@ func TestApply_TrendGuard_skipsMemoryClampsAndSetsSkipMemory(t *testing.T) {
 		t.Fatalf("expected memory request below template for traceability, got %s vs template %s", r.MemoryRequest.String(), curMem.String())
 	}
 	// CPU still clamped.
-	if r.CPURequest.String() != "700m" {
-		t.Fatalf("CPU request got %s want 700m", r.CPURequest.String())
+	if r.CPURequest.String() != "900m" {
+		t.Fatalf("CPU request got %s want 900m", r.CPURequest.String())
 	}
 }
 

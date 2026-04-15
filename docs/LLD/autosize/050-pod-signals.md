@@ -9,7 +9,7 @@ Define how the controller reads `Pod` API state for containers belonging to the 
 | Spec § | Requirement (summary) |
 |--------|------------------------|
 | §5 | OOM from `lastState.terminated.reason`; restart count delta between reconciles |
-| §9 | OOM → mem limit ×1.5; restart spike delta > 3 → pause downsizing 2 cycles |
+| §9 | OOM → mem limit ×1.5; restart spike delta > 3 → pause downsizing 4 cycles |
 | §12 | Memory leak / OOM handling ties to `slopePositive` (040) and overrides |
 
 ## Scope and non-goals

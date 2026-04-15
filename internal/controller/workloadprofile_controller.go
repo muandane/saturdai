@@ -49,8 +49,9 @@ type WorkloadProfileReconciler struct {
 // +kubebuilder:rbac:groups=autosize.saturdai.auto,resources=workloadprofiles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=autosize.saturdai.auto,resources=workloadprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=autosize.saturdai.auto,resources=workloadprofiles/finalizers,verbs=update
-// +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=pods/resize,verbs=update;patch
 // +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=nodes/proxy,verbs=get
 // +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete

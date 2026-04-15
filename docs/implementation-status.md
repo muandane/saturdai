@@ -28,16 +28,16 @@ Last reviewed: 2026-04-12 — **Bulk selection shipped:** `NamespaceProfile` + `
 | Pod signals: restart count & delta | §5, §9, 050 | Done | Max restart per container in `status.containers[].stats.restartCount`; delta vs prior after `lastEvaluated` baseline (`internal/controller/reconcile.go`, `internal/podsignals`) |
 | Four modes + percentile tables | §8, 060 | Done | Strategy `Engine` + `biasedEngine` in `internal/recommend` (`engine.go`, `strategies.go`, `biased.go`, `bias.go`); `Compute` delegates to `New(..., NoopBias{})` |
 | Prediction `EMA_long + k * (EMA_short - EMA_long)` | §6–7, 060 | Done | `mergeLimitsWithEMAPrediction` in `internal/recommend` (limits only, after quantiles/forecast/peak); rationales include `k` and `cpu_pred`/`mem_pred`; tests in `recommend_test.go` |
-| Safety: max 30% decrease | §9, 070 | Done | Implemented as ≥70% of current (`internal/safety`) |
+| Safety: max 10% decrease | §9, 070 | Done | Implemented as ≥90% of current (`internal/safety`) |
 | Safety: cooldown vs `lastApplied` | §9, 070 | Done | |
 | Safety: OOM override mem×1.5, bypass cooldown | §9, 070 | Done | Lookback ~10m in code |
 | Safety: high CPU throttle override | §9, 070 | Done | >50% throttled/usage |
-| Safety: restart spike → pause downsizing 2 cycles | §9, 070 | Done | `delta > 3` after baseline → `status.downsizePauseCyclesRemaining`; safety holds decreases (`internal/safety`); counter decremented each reconcile (`restart_pause.go`) |
+| Safety: restart spike → pause downsizing 4 cycles | §9, 070 | Done | `delta > 3` after baseline → `status.downsizePauseCyclesRemaining`; safety holds decreases (`internal/safety`); counter decremented each reconcile (`restart_pause.go`) |
 | Trend guard: `slopePositive` blocks memory downsize | §6, §9, 070 | Done | `status.containers[].stats.memory.slopeStreak` + prior `EMA_short` from last reconcile; `N=5` in `internal/aggregate/slope.go`; tests in `slope_test.go` |
 | `metricsRecommendations` vs `recommendations` | §4, §9, 060–070 | Done | Pre/post safety |
 | Status conditions (`TargetResolved`, `MetricsAvailable`, `ProfileReady`) | §4, §12 | Done | `ProfileReady` True iff target resolved and metrics available; kubelet all-fail sets `MetricsAvailable=False` |
 | Reconcile loop, status update | §10, 080 | Done | `internal/controller/reconcile.go` |
-| Actuation: PATCH workload template | §11, 090 | Done | `internal/actuate`; gated by `AUTOSIZE_ACTUATION=true` |
+| Actuation: in-place Pod resize (`pods/resize`) | §11, 090 | Done | `internal/actuate`; gated by `AUTOSIZE_ACTUATION=true`; does not patch parent templates |
 | RBAC / packaging baseline | 100 | Done | `config/rbac`, samples |
 | Bulk target selection (namespace / labels / cluster-wide) | §4, §10, [085](./LLD/autosize/085-bulk-target-selection.md) | Done | **`NamespaceProfile`** (namespaced selector) + **`ClusterProfile`** (cluster-scoped `namespaceSelector` + workload selector) create child **`WorkloadProfile`** CRs; conflict deny + `SelectorConflict`; CEL on CRDs; samples: [`config/samples/autosize_v1_namespaceprofile.yaml`](../config/samples/autosize_v1_namespaceprofile.yaml), [`config/samples/autosize_v1_clusterprofile.yaml`](../config/samples/autosize_v1_clusterprofile.yaml); tracking: `autosize-085` |
 

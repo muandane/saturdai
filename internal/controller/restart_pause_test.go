@@ -25,10 +25,10 @@ func Test_restartPauseAfterReconcile(t *testing.T) {
 		pauseRemaining int32
 		want           int32
 	}{
-		{"spike sets 2", true, true, 0, 2},
-		{"spike resets from 1 to 2", true, true, 1, 2},
+		{"spike sets configured pause", true, true, 0, downsizePauseCyclesOnRestartSpike},
+		{"spike resets from 1 to configured pause", true, true, 1, downsizePauseCyclesOnRestartSpike},
 		{"no baseline spike does not set", false, true, 0, 0},
-		{"decrement when no spike", true, false, 2, 1},
+		{"decrement when no spike", true, false, downsizePauseCyclesOnRestartSpike, downsizePauseCyclesOnRestartSpike - 1},
 		{"decrement to zero", true, false, 1, 0},
 		{"stays zero", true, false, 0, 0},
 	}

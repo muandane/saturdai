@@ -167,7 +167,7 @@ status:
       cpuLimit: "800m"
       memoryRequest: "256Mi"
       memoryLimit: "512Mi"
-      rationale: "balanced: …; safety: decrease_step mem_request 300Mi->256Mi (floor 70%); trend_guard: memory frozen on workload"
+      rationale: "balanced: …; safety: decrease_step mem_request 300Mi->256Mi (floor 90%); trend_guard: memory frozen on workload"
   lastApplied: "2026-04-11T09:45:00Z"
   lastEvaluated: "2026-04-11T10:00:05Z"
   downsizePauseCyclesRemaining: 1   # example: restart-spike pause; decremented each reconcile when > 0
@@ -210,6 +210,7 @@ Bulk policy uses **separate CRDs** so `WorkloadProfile` stays a single-workload 
 | `TargetResolved` | The referenced Deployment/StatefulSet exists and was resolved (child profiles from `NamespaceProfile` / `ClusterProfile` use the same condition). |
 | `MetricsAvailable` | Kubelet stats were collected for this evaluation cycle when required (pods scheduled to nodes), and aggregates/recommendations were updated |
 | `ProfileReady` | `TargetResolved` **and** `MetricsAvailable` are both True |
+| `ActuationApplied` | In-place Pod resize completed (`Applied`), no resize was needed (`Noop`), or partial failures were observed (`False` + `PartialFailure`) |
 
 If kubelet summary fetch fails for **all** nodes that host scheduled pods, set `MetricsAvailable=False` (reason such as `KubeletUnavailable`), **do not** advance `lastEvaluated` or emit a successful “metrics processed” outcome for that cycle; return **`RequeueAfter: max(10s, spec.collectionIntervalSeconds)`** with **nil error** so the requeue applies (controller-runtime ignores `RequeueAfter` when `err != nil`).
 
@@ -420,7 +421,7 @@ k           = 2.0
 
 ### Change Limits
 
-- Max decrease per cycle: **30%**
+- Max decrease per cycle: **10%**
 - Max increase: unrestricted (fast recovery from under-provisioning)
 - Hard floor from `spec.containers[].min*` values
 
@@ -435,14 +436,14 @@ k           = 2.0
 |---|---|
 | OOMKilled | `memLimit *= 1.5`, mark applied |
 | High CPU throttling (>50%) | `cpuLimit += 25%` |
-| Restart spike (delta > 3) | Pause downsizing for 2 cycles |
+| Restart spike (delta > 3) | Pause downsizing for 4 cycles |
 
 ### Trend Guard
 
 When `slopePositive == true` for a container’s memory aggregate (§7):
 
 - **Actuation:** do **not** PATCH memory request/limit for that container — keep the workload’s current template memory (CPU may still update).
-- **Safety:** do not apply the 30% decrease **clamp** to memory for that container; engine output may still appear in `status.metricsRecommendations` / `status.recommendations` with a `trend_guard` note in rationale for traceability.
+- **Safety:** do not apply the decrease **clamp** to memory for that container; engine output may still appear in `status.metricsRecommendations` / `status.recommendations` with a `trend_guard` note in rationale for traceability.
 
 This is **not** “strip memory from status”; it is **freeze memory on the workload** until the trend guard clears.
 
@@ -450,12 +451,12 @@ This is **not** “strip memory from status”; it is **freeze memory on the wor
 
 ### Rationale Field
 
-Every recommendation in `status.recommendations[].rationale` must be a human-readable string explaining the decision. **`status.recommendations`** holds values **after** safety rules (including the 30% decrease floor). Sketch-only outputs are mirrored on **`status.metricsRecommendations`** (pre-safety) when present so operators can compare engine output to effective values.
+Every recommendation in `status.recommendations[].rationale` must be a human-readable string explaining the decision. **`status.recommendations`** holds values **after** safety rules (including the 10% max decrease / 90% floor). Sketch-only outputs are mirrored on **`status.metricsRecommendations`** (pre-safety) when present so operators can compare engine output to effective values.
 
 ```
 "balanced: P70=230m cpu, P95=890m cpu, no OOM in 24h, cooldown satisfied"
 "override: OOMKill detected 3m ago, memory x1.5 applied"
-"; safety: decrease_step cpu_request 98m->70m (floor 70% of current 100m)"
+"; safety: decrease_step cpu_request 98m->90m (floor 90% of current 100m)"
 ```
 
 ---
@@ -504,12 +505,12 @@ func (r *WorkloadProfileReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 ### Apply via
 
-- `PATCH /apis/apps/v1/namespaces/{ns}/deployments/{name}` — container resources in pod template
-- Triggers rolling update automatically
+- `PATCH /api/v1/namespaces/{ns}/pods/{name}/resize` — container resources on running Pods
+- Keeps parent workload templates unchanged (no rollout-triggering template mutation)
 
 ### Never
 
-- Mutate Pods directly — controllers own Pods
+- Patch parent workload templates for actuation resource changes
 
 ### Admission Webhook (cold-start)
 
@@ -551,6 +552,9 @@ rules:
   resources: ["pods"]
   verbs: ["get", "list", "watch"]
 - apiGroups: [""]
+  resources: ["pods/resize"]
+  verbs: ["patch", "update"]
+- apiGroups: [""]
   resources: ["nodes"]
   verbs: ["get", "list", "watch"]
 - apiGroups: [""]
@@ -558,7 +562,7 @@ rules:
   verbs: ["get"]
 - apiGroups: ["apps"]
   resources: ["deployments", "statefulsets"]
-  verbs: ["get", "list", "watch", "patch"]
+  verbs: ["get", "list", "watch"]
 - apiGroups: [""]
   resources: ["configmaps"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

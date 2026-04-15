@@ -295,9 +295,25 @@ func (r *WorkloadProfileReconciler) runObserveAndActuate(
 		return nil, nil
 	}
 
-	if err := actuate.Apply(ctx, r.Client, obj, finalRecs, safe.SkipMemory); err != nil {
-		return nil, err
+	actuationResult, err := actuate.Apply(ctx, r.Client, pods, finalRecs, safe.SkipMemory)
+	if err != nil {
+		setCondition(profile, autosizev1.ConditionTypeActuationApplied, metav1.ConditionFalse, "PartialFailure", err.Error())
+		syncProfileReady(profile)
+		if persistErr := r.persistStatus(ctx, profile); persistErr != nil {
+			return nil, persistErr
+		}
+		d := 10 * time.Second
+		return &d, nil
 	}
+	if actuationResult.Resized == 0 {
+		setCondition(profile, autosizev1.ConditionTypeActuationApplied, metav1.ConditionTrue, "Noop", "no pod resize needed")
+		syncProfileReady(profile)
+		if persistErr := r.persistStatus(ctx, profile); persistErr != nil {
+			return nil, persistErr
+		}
+		return nil, nil
+	}
+	setCondition(profile, autosizev1.ConditionTypeActuationApplied, metav1.ConditionTrue, "Applied", fmt.Sprintf("resized=%d noop=%d", actuationResult.Resized, actuationResult.Noop))
 	profile.Status.LastApplied = &metav1.Time{Time: r.now()}
 	if err := r.persistStatus(ctx, profile); err != nil {
 		return nil, err
