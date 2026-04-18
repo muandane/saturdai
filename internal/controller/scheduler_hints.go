@@ -16,14 +16,12 @@ type nodeSchedulerState struct {
 	RequestedMemBytes   int64
 }
 
+// podRequestsTotal returns the steady-state running workload requests used for node pressure hints.
+// It sums regular containers only to avoid inflating pressure with sequential init-container requests.
 func podRequestsTotal(p *corev1.Pod) (cpuMilli, memBytes int64) {
 	for i := range p.Spec.Containers {
 		cpuMilli += p.Spec.Containers[i].Resources.Requests.Cpu().MilliValue()
 		memBytes += p.Spec.Containers[i].Resources.Requests.Memory().Value()
-	}
-	for i := range p.Spec.InitContainers {
-		cpuMilli += p.Spec.InitContainers[i].Resources.Requests.Cpu().MilliValue()
-		memBytes += p.Spec.InitContainers[i].Resources.Requests.Memory().Value()
 	}
 	return cpuMilli, memBytes
 }

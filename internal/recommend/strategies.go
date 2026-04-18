@@ -26,18 +26,21 @@ type balancedStrategy struct {
 	fallback bool // true when original mode was unknown (maps to balanced behavior)
 }
 
+func applySchedulerPressure(cpuReqMilli, memReqBytes float64, in Input) (float64, float64, string) {
+	if in.SchedulerBalanceScore >= 0 && in.SchedulerBalanceScore < 0.15 {
+		return cpuReqMilli * 1.15, memReqBytes * 1.15,
+			fmt.Sprintf("; scheduler_pressure: high (balance=%.2f) request_inflated", in.SchedulerBalanceScore)
+	}
+	return cpuReqMilli, memReqBytes, ""
+}
+
 func (b balancedStrategy) Compute(in Input) (autosizev1.Recommendation, error) {
 	mode := normalizeMode(in.Mode)
 	cpuReqMilli, _ := qMilli(effectiveCPUSketch(in), 0.70)
 	cpuLimMilli, _ := qMilli(effectiveCPUSketch(in), 0.95)
 	memReqBytes, _ := qBytes(effectiveMemSketch(in), 0.70)
 	memLimBytes, _ := qBytes(effectiveMemSketch(in), 0.95)
-	schedNote := ""
-	if in.SchedulerBalanceScore >= 0 && in.SchedulerBalanceScore < 0.15 {
-		cpuReqMilli *= 1.15
-		memReqBytes *= 1.15
-		schedNote = fmt.Sprintf("; scheduler_pressure: high (balance=%.2f) request_inflated", in.SchedulerBalanceScore)
-	}
+	cpuReqMilli, memReqBytes, schedNote := applySchedulerPressure(cpuReqMilli, memReqBytes, in)
 	cpuLimMilli, memLimBytes, k, cpuPred, memPred := mergeLimitsWithEMAPrediction(cpuLimMilli, memLimBytes, in, "balanced")
 	var rationale string
 	if b.fallback {
@@ -67,6 +70,7 @@ func (resilienceStrategy) Compute(in Input) (autosizev1.Recommendation, error) {
 	p99m, _ := qBytes(memSk, 0.99)
 	memReqBytes := p90m
 	memLimBytes := p99m * 1.2
+	cpuReqMilli, memReqBytes, schedNote := applySchedulerPressure(cpuReqMilli, memReqBytes, in)
 	if in.ForecastCPU > 0 {
 		cpuLimMilli = math.Max(cpuLimMilli, in.ForecastCPU)
 	}
@@ -75,8 +79,8 @@ func (resilienceStrategy) Compute(in Input) (autosizev1.Recommendation, error) {
 	}
 	cpuLimMilli, memLimBytes, k, cpuPred, memPred := mergeLimitsWithEMAPrediction(cpuLimMilli, memLimBytes, in, "resilience")
 	rationale := fmt.Sprintf(
-		"resilience: P90 req, P99*1.1/1.2 limits; limits=max(quantile,EMA_long+k*(short-long)) k=%.1f cpu_pred=%.0fm mem_pred=%.0f; mode=resilience",
-		k, cpuPred, memPred,
+		"resilience: P90 req, P99*1.1/1.2 limits; limits=max(quantile,EMA_long+k*(short-long)) k=%.1f cpu_pred=%.0fm mem_pred=%.0f; mode=resilience%s",
+		k, cpuPred, memPred, schedNote,
 	)
 	return finalizeRec(in, cpuReqMilli, cpuLimMilli, memReqBytes, memLimBytes, rationale), nil
 }

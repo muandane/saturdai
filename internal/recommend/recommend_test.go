@@ -244,3 +244,40 @@ func TestCompute_Balanced_SchedulerPressureInflatesCPUReq(t *testing.T) {
 		t.Fatalf("rationale should note scheduler_pressure: %q", rPack.Rationale)
 	}
 }
+
+func TestCompute_Balanced_UnknownScoreNoInflation(t *testing.T) {
+	t.Parallel()
+	sk := sketchConstant(1000)
+	base := Input{
+		ContainerName: "app",
+		Mode:          "balanced",
+		CPUSketch:     sk,
+		MemSketch:     sk,
+		CPUEShort:     1000,
+		CPUELong:      1000,
+		MemShort:      1000,
+		MemLong:       1000,
+	}
+	unknown := base
+	unknown.SchedulerBalanceScore = SchedulerBalanceUnknown
+	normal := base
+	normal.SchedulerBalanceScore = 0.40
+
+	rUnknown, err := Compute(unknown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rNormal, err := Compute(normal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rUnknown.CPURequest.MilliValue() != rNormal.CPURequest.MilliValue() {
+		t.Fatalf("unknown score should not inflate cpu request: unknown=%s normal=%s", rUnknown.CPURequest.String(), rNormal.CPURequest.String())
+	}
+	if rUnknown.MemoryRequest.Value() != rNormal.MemoryRequest.Value() {
+		t.Fatalf("unknown score should not inflate memory request: unknown=%s normal=%s", rUnknown.MemoryRequest.String(), rNormal.MemoryRequest.String())
+	}
+	if strings.Contains(rUnknown.Rationale, "scheduler_pressure") {
+		t.Fatalf("unknown score should not add scheduler pressure rationale: %q", rUnknown.Rationale)
+	}
+}
