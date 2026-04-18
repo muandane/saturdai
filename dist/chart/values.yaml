@@ -13,7 +13,7 @@ manager:
 
   image:
     repository:  ghcr.io/muandane/saturdai
-    tag: 0.0.1
+    tag: 0.0.3
     pullPolicy: IfNotPresent
 
   ## Arguments

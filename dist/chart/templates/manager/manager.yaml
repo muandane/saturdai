@@ -58,6 +58,10 @@ spec:
           initialDelaySeconds: 15
           periodSeconds: 20
         name: manager
+        {{- if .Values.manager.env }}
+        env:
+        {{- toYaml .Values.manager.env | nindent 10 }}
+        {{- end }}
         ports:
         - containerPort: {{ .Values.webhook.port }}
           name: webhook-server
