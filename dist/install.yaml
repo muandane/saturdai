@@ -192,6 +192,13 @@ spec:
                     - burst
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: containers.minCPU must be less than or equal to containers.maxCPU
+                  rule: '!has(self.containers) || self.containers.all(c, !has(c.minCPU)
+                    || !has(c.maxCPU) || c.minCPU <= c.maxCPU)'
+                - message: containers.minMemory must be less than or equal to containers.maxMemory
+                  rule: '!has(self.containers) || self.containers.all(c, !has(c.minMemory)
+                    || !has(c.maxMemory) || c.minMemory <= c.maxMemory)'
               workloadSelector:
                 description: WorkloadSelector selects Deployments/StatefulSets within
                   matched namespaces.
@@ -523,6 +530,13 @@ spec:
                     - burst
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: containers.minCPU must be less than or equal to containers.maxCPU
+                  rule: '!has(self.containers) || self.containers.all(c, !has(c.minCPU)
+                    || !has(c.maxCPU) || c.minCPU <= c.maxCPU)'
+                - message: containers.minMemory must be less than or equal to containers.maxMemory
+                  rule: '!has(self.containers) || self.containers.all(c, !has(c.minMemory)
+                    || !has(c.maxMemory) || c.minMemory <= c.maxMemory)'
               workloadSelector:
                 description: WorkloadSelector selects Deployments/StatefulSets in
                   the profile namespace.
@@ -738,6 +752,15 @@ spec:
     - jsonPath: .status.downsizePauseCyclesRemaining
       name: Pause
       type: integer
+    - format: float
+      jsonPath: .status.binPacking.schedulerBalanceScore
+      name: Balance
+      priority: 1
+      type: number
+    - jsonPath: .status.binPacking.nodePressure
+      name: Pressure
+      priority: 1
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -852,6 +875,13 @@ spec:
             required:
             - targetRef
             type: object
+            x-kubernetes-validations:
+            - message: containers.minCPU must be less than or equal to containers.maxCPU
+              rule: '!has(self.containers) || self.containers.all(c, !has(c.minCPU)
+                || !has(c.maxCPU) || c.minCPU <= c.maxCPU)'
+            - message: containers.minMemory must be less than or equal to containers.maxMemory
+              rule: '!has(self.containers) || self.containers.all(c, !has(c.minMemory)
+                || !has(c.maxMemory) || c.minMemory <= c.maxMemory)'
           status:
             description: WorkloadProfileStatus defines the observed state of WorkloadProfile.
             properties:
@@ -868,10 +898,23 @@ spec:
                       this reconcile.
                     format: int32
                     type: integer
+                  nodePressure:
+                    description: 'NodePressure is a coarse label from SchedulerBalanceScore:
+                      low, medium, or high (packed).'
+                    enum:
+                    - low
+                    - medium
+                    - high
+                    type: string
                   observedAt:
                     description: ObservedAt is when hints were computed.
                     format: date-time
                     type: string
+                  schedulerBalanceScore:
+                    description: |-
+                      SchedulerBalanceScore is in [0,1]: mean allocatable-free fraction across nodes (kube-scheduler–adjacent); 0-packed, 1-balanced.
+                      Set when at least one node was evaluated; omitted when unknown (e.g. no scheduled pods for this workload).
+                    type: number
                 type: object
               conditions:
                 description: conditions represent the current state of the WorkloadProfile

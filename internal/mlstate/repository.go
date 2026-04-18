@@ -76,6 +76,9 @@ func (r *ConfigMapRepository) Load(ctx context.Context, profile *autosizev1.Work
 	if state.HW == nil {
 		state.HW = map[string]*ContainerHW{}
 	}
+	if state.LastOOMKill == nil {
+		state.LastOOMKill = map[string]*metav1.Time{}
+	}
 	for _, fb := range state.Feedback {
 		recommend.MigrateLegacyFeedback(fb)
 	}

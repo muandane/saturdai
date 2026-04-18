@@ -31,7 +31,7 @@ Last reviewed: 2026-04-12 — **Bulk selection shipped:** `NamespaceProfile` + `
 | Safety: max 10% decrease | §9, 070 | Done | Implemented as ≥90% of current (`internal/safety`) |
 | Safety: cooldown vs `lastApplied` | §9, 070 | Done | |
 | Safety: OOM override mem×1.5, bypass cooldown | §9, 070 | Done | Lookback ~10m in code |
-| Safety: high CPU throttle override | §9, 070 | Done | >50% throttled/usage |
+| Safety: high CPU throttle override | §9, 070 | Partial | Design is documented in LLD/spec, but runtime path is not wired yet: kubelet summary struct currently exposes `usageNanoCores` only (no `throttledUsageNanoCores` plumbed through usage/safety). |
 | Safety: restart spike → pause downsizing 4 cycles | §9, 070 | Done | `delta > 3` after baseline → `status.downsizePauseCyclesRemaining`; safety holds decreases (`internal/safety`); counter decremented each reconcile (`restart_pause.go`) |
 | Trend guard: `slopePositive` blocks memory downsize | §6, §9, 070 | Done | `status.containers[].stats.memory.slopeStreak` + prior `EMA_short` from last reconcile; `N=5` in `internal/aggregate/slope.go`; tests in `slope_test.go` |
 | `metricsRecommendations` vs `recommendations` | §4, §9, 060–070 | Done | Pre/post safety |

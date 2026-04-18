@@ -133,6 +133,13 @@ spec:
                     - burst
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: containers.minCPU must be less than or equal to containers.maxCPU
+                  rule: '!has(self.containers) || self.containers.all(c, !has(c.minCPU)
+                    || !has(c.maxCPU) || c.minCPU <= c.maxCPU)'
+                - message: containers.minMemory must be less than or equal to containers.maxMemory
+                  rule: '!has(self.containers) || self.containers.all(c, !has(c.minMemory)
+                    || !has(c.maxMemory) || c.minMemory <= c.maxMemory)'
               workloadSelector:
                 description: WorkloadSelector selects Deployments/StatefulSets in
                   the profile namespace.

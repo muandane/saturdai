@@ -11,6 +11,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -177,12 +178,9 @@ func (r *WorkloadProfileReconciler) runObserveAndActuate(
 	for _, cname := range tplNames {
 		st := byName[cname]
 
-		perNode, cpuMilli, memBytes, throttled, usage := collectUsageBreakdown(summaries, ns, pods, cname)
+		perNode, cpuMilli, memBytes := collectUsageBreakdown(summaries, ns, pods, cname)
 		if h := cpuHeteroScore(perNode); h > maxHetero {
 			maxHetero = h
-		}
-		if throttled > 0 && usage > 0 {
-			sig.SetThrottleRatio(cname, throttled, usage)
 		}
 
 		fCPU, fMem, err := r.ingestContainerMetrics(logger, profile, mlState, &st, cname, cpuMilli, memBytes, perNode)
@@ -191,11 +189,18 @@ func (r *WorkloadProfileReconciler) runObserveAndActuate(
 		}
 		forecasts[cname] = struct{ CPU, Mem float64 }{CPU: fCPU, Mem: fMem}
 
+		mergedOOM := persistedLastOOMKill(r.now(), cname, sig.LastOOMKill[cname], mlState.LastOOMKill)
+		if mergedOOM == nil {
+			delete(sig.LastOOMKill, cname)
+		} else {
+			sig.LastOOMKill[cname] = mergedOOM
+		}
+
 		observedAt := metav1.NewTime(r.now())
 		st.Stats.CPU.LastUpdated = &observedAt
 		st.Stats.Memory.LastUpdated = &observedAt
 
-		applyLastOOMKillFromSnapshot(&st, sig.LastOOMKill[cname])
+		applyLastOOMKillFromSnapshot(&st, mergedOOM)
 
 		prevRestart := st.Stats.RestartCount
 		currentMax := sig.RestartCount[cname]
@@ -214,11 +219,31 @@ func (r *WorkloadProfileReconciler) runObserveAndActuate(
 		}
 		nodeSet[pods[i].Spec.NodeName] = struct{}{}
 	}
+	nodeNames := make([]string, 0, len(nodeSet))
+	for n := range nodeSet {
+		nodeNames = append(nodeNames, n)
+	}
+	var schedBalance *float64
+	nodePressure := ""
+	if len(nodeNames) > 0 {
+		states := fetchNodeSchedulerStates(ctx, logger, r.Client, nodeNames)
+		if len(states) > 0 {
+			s := leastAllocatedScore(states)
+			schedBalance = &s
+			nodePressure = nodePressureLabel(s)
+		}
+	}
+	schedInputScore := recommend.SchedulerBalanceUnknown
+	if schedBalance != nil {
+		schedInputScore = *schedBalance
+	}
 	bpAt := metav1.NewTime(r.now())
 	profile.Status.BinPacking = &autosizev1.BinPackingHints{
-		HeteroScore: maxHetero,
-		NodeCount:   int32(len(nodeSet)),
-		ObservedAt:  &bpAt,
+		HeteroScore:           maxHetero,
+		NodeCount:             int32(len(nodeSet)),
+		ObservedAt:            &bpAt,
+		SchedulerBalanceScore: schedBalance,
+		NodePressure:          nodePressure,
 	}
 
 	pruneMLState(mlState, tplNames)
@@ -239,22 +264,23 @@ func (r *WorkloadProfileReconciler) runObserveAndActuate(
 		fc := forecasts[cname]
 		mm := minMax[cname]
 		rec, err := engine.Compute(recommend.Input{
-			ContainerName:     cname,
-			Mode:              mode,
-			CPUSketch:         cpuSketch,
-			MemSketch:         memSketch,
-			QuadrantCPUSketch: quadCPU,
-			QuadrantMemSketch: quadMem,
-			CPUEShort:         st.Stats.CPU.EMAShort,
-			CPUELong:          st.Stats.CPU.EMALong,
-			MemShort:          st.Stats.Memory.EMAShort,
-			MemLong:           st.Stats.Memory.EMALong,
-			ForecastCPU:       fc.CPU,
-			ForecastMem:       fc.Mem,
-			MinCPU:            mm.MinCPU,
-			MaxCPU:            mm.MaxCPU,
-			MinMemory:         mm.MinMemory,
-			MaxMemory:         mm.MaxMemory,
+			ContainerName:         cname,
+			Mode:                  mode,
+			CPUSketch:             cpuSketch,
+			MemSketch:             memSketch,
+			QuadrantCPUSketch:     quadCPU,
+			QuadrantMemSketch:     quadMem,
+			CPUEShort:             st.Stats.CPU.EMAShort,
+			CPUELong:              st.Stats.CPU.EMALong,
+			MemShort:              st.Stats.Memory.EMAShort,
+			MemLong:               st.Stats.Memory.EMALong,
+			ForecastCPU:           fc.CPU,
+			ForecastMem:           fc.Mem,
+			MinCPU:                mm.MinCPU,
+			MaxCPU:                mm.MaxCPU,
+			MinMemory:             mm.MinMemory,
+			MaxMemory:             mm.MaxMemory,
+			SchedulerBalanceScore: schedInputScore,
 		})
 		if err != nil {
 			return nil, err
@@ -445,21 +471,13 @@ func currentResourcesFromTemplate(obj runtime.Object, names []string) (map[strin
 }
 
 func setCondition(profile *autosizev1.WorkloadProfile, typ string, status metav1.ConditionStatus, reason, message string) {
-	c := metav1.Condition{
+	apimeta.SetStatusCondition(&profile.Status.Conditions, metav1.Condition{
 		Type:               typ,
 		Status:             status,
 		Reason:             reason,
 		Message:            message,
 		ObservedGeneration: profile.Generation,
-		LastTransitionTime: metav1.Now(),
-	}
-	for i := range profile.Status.Conditions {
-		if profile.Status.Conditions[i].Type == typ {
-			profile.Status.Conditions[i] = c
-			return
-		}
-	}
-	profile.Status.Conditions = append(profile.Status.Conditions, c)
+	})
 }
 
 func conditionStatus(profile *autosizev1.WorkloadProfile, typ string) metav1.ConditionStatus {

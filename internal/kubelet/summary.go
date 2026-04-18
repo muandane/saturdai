@@ -41,8 +41,6 @@ type CPUStats struct {
 	Time metav1.Time `json:"time"`
 	// UsageNanoCores is instantaneous usage.
 	UsageNanoCores *uint64 `json:"usageNanoCores,omitempty"`
-	// ThrottledUsageNanoCores may be set when throttling data exists.
-	ThrottledUsageNanoCores *uint64 `json:"throttledUsageNanoCores,omitempty"`
 }
 
 // MemoryStats mirrors kubelet memory stats.

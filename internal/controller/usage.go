@@ -20,8 +20,6 @@ func collectUsageBreakdown(summaries map[string]*kubelet.Summary, ns string, pod
 	perNode map[string]nodeUsageSample,
 	cpuMilliMean float64,
 	memBytesMean float64,
-	throttled uint64,
-	usage uint64,
 ) {
 	type acc struct {
 		cpuSum, memSum float64
@@ -29,46 +27,51 @@ func collectUsageBreakdown(summaries map[string]*kubelet.Summary, ns string, pod
 	}
 	byNode := map[string]*acc{}
 	podCounts := map[string]int{}
+	podIndexByNode := make(map[string]map[string]*kubelet.PodStats, len(summaries))
+	for node, sum := range summaries {
+		if sum == nil {
+			continue
+		}
+		nodeIndex := make(map[string]*kubelet.PodStats, len(sum.Pods))
+		for i := range sum.Pods {
+			key := sum.Pods[i].PodRef.Namespace + "/" + sum.Pods[i].PodRef.Name
+			nodeIndex[key] = &sum.Pods[i]
+		}
+		podIndexByNode[node] = nodeIndex
+	}
 
 	for _, pod := range pods {
 		if pod.Namespace != ns || pod.Spec.NodeName == "" {
 			continue
 		}
-		sum := summaries[pod.Spec.NodeName]
-		if sum == nil {
+		nodeIndex := podIndexByNode[pod.Spec.NodeName]
+		if nodeIndex == nil {
 			continue
 		}
-		for _, ps := range sum.Pods {
-			if ps.PodRef.Namespace != pod.Namespace || ps.PodRef.Name != pod.Name {
+		ps := nodeIndex[pod.Namespace+"/"+pod.Name]
+		if ps == nil {
+			continue
+		}
+		for _, cs := range ps.Containers {
+			if cs.Name != container {
 				continue
 			}
-			for _, cs := range ps.Containers {
-				if cs.Name != container {
-					continue
-				}
-				node := pod.Spec.NodeName
-				a := byNode[node]
-				if a == nil {
-					a = &acc{}
-					byNode[node] = a
-				}
-				if cs.CPU != nil && cs.CPU.UsageNanoCores != nil {
-					a.cpuSum += float64(*cs.CPU.UsageNanoCores) / 1e6
-					a.cpuN++
-					if cs.CPU.ThrottledUsageNanoCores != nil {
-						throttled += *cs.CPU.ThrottledUsageNanoCores
-					}
-					if cs.CPU.UsageNanoCores != nil {
-						usage += *cs.CPU.UsageNanoCores
-					}
-				}
-				if cs.Memory != nil && cs.Memory.WorkingSetBytes != nil {
-					a.memSum += float64(*cs.Memory.WorkingSetBytes)
-					a.memN++
-				}
-				podCounts[node]++
-				break
+			node := pod.Spec.NodeName
+			a := byNode[node]
+			if a == nil {
+				a = &acc{}
+				byNode[node] = a
 			}
+			if cs.CPU != nil && cs.CPU.UsageNanoCores != nil {
+				a.cpuSum += float64(*cs.CPU.UsageNanoCores) / 1e6
+				a.cpuN++
+			}
+			if cs.Memory != nil && cs.Memory.WorkingSetBytes != nil {
+				a.memSum += float64(*cs.Memory.WorkingSetBytes)
+				a.memN++
+			}
+			podCounts[node]++
+			break
 		}
 	}
 
@@ -97,8 +100,7 @@ func collectUsageBreakdown(summaries map[string]*kubelet.Summary, ns string, pod
 	}
 	return perNode,
 		aggregate.FiniteOrZero(cpuMilliMean),
-		aggregate.FiniteOrZero(memBytesMean),
-		throttled, usage
+		aggregate.FiniteOrZero(memBytesMean)
 }
 
 // cpuHeteroScore returns (max-min)/max(mean,1e-6) capped to [0,1] when len>=2; else 0.

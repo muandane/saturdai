@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"os"
@@ -26,11 +27,13 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -199,6 +202,18 @@ func main() {
 	})
 	if err != nil {
 		setupLog.Error(err, "Failed to start manager")
+		os.Exit(1)
+	}
+
+	setupCtx := context.Background()
+	if err := mgr.GetFieldIndexer().IndexField(setupCtx, &corev1.Pod{}, "spec.nodeName", func(o client.Object) []string {
+		pod, ok := o.(*corev1.Pod)
+		if !ok {
+			return nil
+		}
+		return []string{pod.Spec.NodeName}
+	}); err != nil {
+		setupLog.Error(err, "Failed to index Pod by spec.nodeName")
 		os.Exit(1)
 	}
 

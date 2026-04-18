@@ -89,13 +89,13 @@ type ClusterProfile struct {
 	metav1.TypeMeta `json:",inline"`
 
 	// +optional
-	metav1.ObjectMeta `json:"metadata,omitzero"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// +required
 	Spec ClusterProfileSpec `json:"spec"`
 
 	// +optional
-	Status ClusterProfileStatus `json:"status,omitzero"`
+	Status ClusterProfileStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -103,7 +103,7 @@ type ClusterProfile struct {
 // ClusterProfileList contains a list of ClusterProfile.
 type ClusterProfileList struct {
 	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitzero"`
+	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []ClusterProfile `json:"items"`
 }
 

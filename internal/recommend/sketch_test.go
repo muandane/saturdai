@@ -45,7 +45,7 @@ func TestEffectiveCPUSketch_prefersQuadrantWhenEnoughSamples(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	in := Input{CPUSketch: global, QuadrantCPUSketch: quad}
+	in := Input{CPUSketch: global, QuadrantCPUSketch: quad, SchedulerBalanceScore: SchedulerBalanceUnknown}
 	if effectiveCPUSketch(in) != quad {
 		t.Fatal("expected quadrant when count sufficient")
 	}
