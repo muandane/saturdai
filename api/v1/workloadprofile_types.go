@@ -144,6 +144,14 @@ type BinPackingHints struct {
 	// ObservedAt is when hints were computed.
 	// +optional
 	ObservedAt *metav1.Time `json:"observedAt,omitempty"`
+	// SchedulerBalanceScore is in [0,1]: mean allocatable-free fraction across nodes (kube-scheduler–adjacent); 0-packed, 1-balanced.
+	// Set when at least one node was evaluated; omitted when unknown (e.g. no scheduled pods for this workload).
+	// +optional
+	SchedulerBalanceScore *float64 `json:"schedulerBalanceScore,omitempty"`
+	// NodePressure is a coarse label from SchedulerBalanceScore: low, medium, or high (packed).
+	// +kubebuilder:validation:Enum=low;medium;high
+	// +optional
+	NodePressure string `json:"nodePressure,omitempty"`
 }
 
 // ContainerResourceStats is observed stats for one logical container (pod template name).
@@ -225,6 +233,8 @@ type WorkloadProfileStatus struct {
 // +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.mode`
 // +kubebuilder:printcolumn:name="Target",type=string,JSONPath=`.spec.targetRef.name`
 // +kubebuilder:printcolumn:name="Pause",type=integer,JSONPath=`.status.downsizePauseCyclesRemaining`
+// +kubebuilder:printcolumn:name="Balance",type=number,JSONPath=`.status.binPacking.schedulerBalanceScore`,format=float,priority=1
+// +kubebuilder:printcolumn:name="Pressure",type=string,JSONPath=`.status.binPacking.nodePressure`,priority=1
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // WorkloadProfile is the Schema for the workloadprofiles API.

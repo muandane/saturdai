@@ -219,11 +219,31 @@ func (r *WorkloadProfileReconciler) runObserveAndActuate(
 		}
 		nodeSet[pods[i].Spec.NodeName] = struct{}{}
 	}
+	nodeNames := make([]string, 0, len(nodeSet))
+	for n := range nodeSet {
+		nodeNames = append(nodeNames, n)
+	}
+	var schedBalance *float64
+	nodePressure := ""
+	if len(nodeNames) > 0 {
+		states := fetchNodeSchedulerStates(ctx, logger, r.Client, nodeNames)
+		if len(states) > 0 {
+			s := leastAllocatedScore(states)
+			schedBalance = &s
+			nodePressure = nodePressureLabel(s)
+		}
+	}
+	schedInputScore := recommend.SchedulerBalanceUnknown
+	if schedBalance != nil {
+		schedInputScore = *schedBalance
+	}
 	bpAt := metav1.NewTime(r.now())
 	profile.Status.BinPacking = &autosizev1.BinPackingHints{
-		HeteroScore: maxHetero,
-		NodeCount:   int32(len(nodeSet)),
-		ObservedAt:  &bpAt,
+		HeteroScore:           maxHetero,
+		NodeCount:             int32(len(nodeSet)),
+		ObservedAt:            &bpAt,
+		SchedulerBalanceScore: schedBalance,
+		NodePressure:          nodePressure,
 	}
 
 	pruneMLState(mlState, tplNames)
@@ -244,22 +264,23 @@ func (r *WorkloadProfileReconciler) runObserveAndActuate(
 		fc := forecasts[cname]
 		mm := minMax[cname]
 		rec, err := engine.Compute(recommend.Input{
-			ContainerName:     cname,
-			Mode:              mode,
-			CPUSketch:         cpuSketch,
-			MemSketch:         memSketch,
-			QuadrantCPUSketch: quadCPU,
-			QuadrantMemSketch: quadMem,
-			CPUEShort:         st.Stats.CPU.EMAShort,
-			CPUELong:          st.Stats.CPU.EMALong,
-			MemShort:          st.Stats.Memory.EMAShort,
-			MemLong:           st.Stats.Memory.EMALong,
-			ForecastCPU:       fc.CPU,
-			ForecastMem:       fc.Mem,
-			MinCPU:            mm.MinCPU,
-			MaxCPU:            mm.MaxCPU,
-			MinMemory:         mm.MinMemory,
-			MaxMemory:         mm.MaxMemory,
+			ContainerName:         cname,
+			Mode:                  mode,
+			CPUSketch:             cpuSketch,
+			MemSketch:             memSketch,
+			QuadrantCPUSketch:     quadCPU,
+			QuadrantMemSketch:     quadMem,
+			CPUEShort:             st.Stats.CPU.EMAShort,
+			CPUELong:              st.Stats.CPU.EMALong,
+			MemShort:              st.Stats.Memory.EMAShort,
+			MemLong:               st.Stats.Memory.EMALong,
+			ForecastCPU:           fc.CPU,
+			ForecastMem:           fc.Mem,
+			MinCPU:                mm.MinCPU,
+			MaxCPU:                mm.MaxCPU,
+			MinMemory:             mm.MinMemory,
+			MaxMemory:             mm.MaxMemory,
+			SchedulerBalanceScore: schedInputScore,
 		})
 		if err != nil {
 			return nil, err

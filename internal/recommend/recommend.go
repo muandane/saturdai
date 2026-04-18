@@ -19,6 +19,9 @@ func sketchHasEnoughSamples(sk *ddsketch.DDSketch) bool {
 	return sk != nil && !sk.IsEmpty() && sk.GetCount() >= minQuadrantSketchCount
 }
 
+// SchedulerBalanceUnknown means no cluster balance observation; skip packed-cluster request inflation.
+const SchedulerBalanceUnknown = -1.0
+
 // Input carries per-container metrics for recommendation.
 type Input struct {
 	ContainerName string
@@ -39,6 +42,9 @@ type Input struct {
 	MaxCPU      *resource.Quantity
 	MinMemory   *resource.Quantity
 	MaxMemory   *resource.Quantity
+	// SchedulerBalanceScore is mean free-allocatable share [0,1] across nodes hosting the workload (scheduler-adjacent).
+	// -1 means unknown / do not apply packed-cluster adjustment.
+	SchedulerBalanceScore float64
 }
 
 func effectiveCPUSketch(in Input) *ddsketch.DDSketch {

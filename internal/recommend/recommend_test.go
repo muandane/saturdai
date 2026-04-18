@@ -71,14 +71,15 @@ func TestCompute_PerMode_KInRationale(t *testing.T) {
 	sk := sketchConstant(1000)
 	for _, tc := range modes {
 		in := Input{
-			ContainerName: "app",
-			Mode:          tc.mode,
-			CPUSketch:     sk,
-			MemSketch:     sk,
-			CPUEShort:     1000,
-			CPUELong:      1000,
-			MemShort:      1000,
-			MemLong:       1000,
+			ContainerName:         "app",
+			Mode:                  tc.mode,
+			CPUSketch:             sk,
+			MemSketch:             sk,
+			CPUEShort:             1000,
+			CPUELong:              1000,
+			MemShort:              1000,
+			MemLong:               1000,
+			SchedulerBalanceScore: SchedulerBalanceUnknown,
 		}
 		rec, err := Compute(in)
 		if err != nil {
@@ -98,14 +99,15 @@ func TestCompute_PredictionRaisesCPULimitAboveQuantile(t *testing.T) {
 	// Quantiles ~1000m; EMAs imply higher prediction for balanced (k=1).
 	sk := sketchConstant(1000)
 	in := Input{
-		ContainerName: "app",
-		Mode:          "balanced",
-		CPUSketch:     sk,
-		MemSketch:     sk,
-		CPUEShort:     5000,
-		CPUELong:      100,
-		MemShort:      1000,
-		MemLong:       1000,
+		ContainerName:         "app",
+		Mode:                  "balanced",
+		CPUSketch:             sk,
+		MemSketch:             sk,
+		CPUEShort:             5000,
+		CPUELong:              100,
+		MemShort:              1000,
+		MemLong:               1000,
+		SchedulerBalanceScore: SchedulerBalanceUnknown,
 	}
 	rec, err := Compute(in)
 	if err != nil {
@@ -122,13 +124,14 @@ func TestMonotonicity_HigherShortEMARaisesCPULimit(t *testing.T) {
 	t.Parallel()
 	sk := sketchConstant(400)
 	base := Input{
-		ContainerName: "app",
-		Mode:          "balanced",
-		CPUSketch:     sk,
-		MemSketch:     sk,
-		CPUELong:      100,
-		MemShort:      400,
-		MemLong:       100,
+		ContainerName:         "app",
+		Mode:                  "balanced",
+		CPUSketch:             sk,
+		MemSketch:             sk,
+		CPUELong:              100,
+		MemShort:              400,
+		MemLong:               100,
+		SchedulerBalanceScore: SchedulerBalanceUnknown,
 	}
 	low := base
 	low.CPUEShort = 200
@@ -153,14 +156,15 @@ func TestCompute_Cost_UsesHalfK(t *testing.T) {
 	t.Parallel()
 	sk := sketchConstant(500)
 	in := Input{
-		ContainerName: "app",
-		Mode:          "cost",
-		CPUSketch:     sk,
-		MemSketch:     sk,
-		CPUEShort:     3000,
-		CPUELong:      100,
-		MemShort:      500,
-		MemLong:       500,
+		ContainerName:         "app",
+		Mode:                  "cost",
+		CPUSketch:             sk,
+		MemSketch:             sk,
+		CPUEShort:             3000,
+		CPUELong:              100,
+		MemShort:              500,
+		MemLong:               500,
+		SchedulerBalanceScore: SchedulerBalanceUnknown,
 	}
 	rec, err := Compute(in)
 	if err != nil {
@@ -177,14 +181,15 @@ func TestCompute_Burst_MergesPeakAndPrediction(t *testing.T) {
 	t.Parallel()
 	sk := sketchConstant(100)
 	in := Input{
-		ContainerName: "app",
-		Mode:          "burst",
-		CPUSketch:     sk,
-		MemSketch:     sk,
-		CPUEShort:     50,
-		CPUELong:      0,
-		MemShort:      50,
-		MemLong:       0,
+		ContainerName:         "app",
+		Mode:                  "burst",
+		CPUSketch:             sk,
+		MemSketch:             sk,
+		CPUEShort:             50,
+		CPUELong:              0,
+		MemShort:              50,
+		MemLong:               0,
+		SchedulerBalanceScore: SchedulerBalanceUnknown,
 	}
 	rec, err := Compute(in)
 	if err != nil {
@@ -203,5 +208,39 @@ func TestCompute_Burst_MergesPeakAndPrediction(t *testing.T) {
 	// peak = max(100,200)=200; pred = 0+2*200=400 -> 400
 	if rec2.CPULimit.MilliValue() != 400 {
 		t.Fatalf("CPULimit %s want 400m", rec2.CPULimit.String())
+	}
+}
+
+func TestCompute_Balanced_SchedulerPressureInflatesCPUReq(t *testing.T) {
+	t.Parallel()
+	sk := sketchConstant(1000)
+	base := Input{
+		ContainerName: "app",
+		Mode:          "balanced",
+		CPUSketch:     sk,
+		MemSketch:     sk,
+		CPUEShort:     1000,
+		CPUELong:      1000,
+		MemShort:      1000,
+		MemLong:       1000,
+	}
+	unknown := base
+	unknown.SchedulerBalanceScore = SchedulerBalanceUnknown
+	packed := base
+	packed.SchedulerBalanceScore = 0.05
+
+	rUnk, err := Compute(unknown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rPack, err := Compute(packed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rPack.CPURequest.MilliValue() <= rUnk.CPURequest.MilliValue() {
+		t.Fatalf("expected packed balance to raise CPU request: unk=%s packed=%s", rUnk.CPURequest.String(), rPack.CPURequest.String())
+	}
+	if !strings.Contains(rPack.Rationale, "scheduler_pressure") {
+		t.Fatalf("rationale should note scheduler_pressure: %q", rPack.Rationale)
 	}
 }

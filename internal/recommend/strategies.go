@@ -32,17 +32,23 @@ func (b balancedStrategy) Compute(in Input) (autosizev1.Recommendation, error) {
 	cpuLimMilli, _ := qMilli(effectiveCPUSketch(in), 0.95)
 	memReqBytes, _ := qBytes(effectiveMemSketch(in), 0.70)
 	memLimBytes, _ := qBytes(effectiveMemSketch(in), 0.95)
+	schedNote := ""
+	if in.SchedulerBalanceScore >= 0 && in.SchedulerBalanceScore < 0.15 {
+		cpuReqMilli *= 1.15
+		memReqBytes *= 1.15
+		schedNote = fmt.Sprintf("; scheduler_pressure: high (balance=%.2f) request_inflated", in.SchedulerBalanceScore)
+	}
 	cpuLimMilli, memLimBytes, k, cpuPred, memPred := mergeLimitsWithEMAPrediction(cpuLimMilli, memLimBytes, in, "balanced")
 	var rationale string
 	if b.fallback {
 		rationale = fmt.Sprintf(
-			"balanced(default): P70/P95; limits=max(quantile,EMA_long+k*(short-long)) k=%.1f cpu_pred=%.0fm mem_pred=%.0f; mode=%s",
-			k, cpuPred, memPred, mode,
+			"balanced(default): P70/P95; limits=max(quantile,EMA_long+k*(short-long)) k=%.1f cpu_pred=%.0fm mem_pred=%.0f; mode=%s%s",
+			k, cpuPred, memPred, mode, schedNote,
 		)
 	} else {
 		rationale = fmt.Sprintf(
-			"balanced: P70/P95 cpu & mem; limits=max(quantile,EMA_long+k*(short-long)) k=%.1f cpu_pred=%.0fm mem_pred=%.0f; mode=%s",
-			k, cpuPred, memPred, mode,
+			"balanced: P70/P95 cpu & mem; limits=max(quantile,EMA_long+k*(short-long)) k=%.1f cpu_pred=%.0fm mem_pred=%.0f; mode=%s%s",
+			k, cpuPred, memPred, mode, schedNote,
 		)
 	}
 	return finalizeRec(in, cpuReqMilli, cpuLimMilli, memReqBytes, memLimBytes, rationale), nil
