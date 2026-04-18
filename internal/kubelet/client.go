@@ -28,7 +28,7 @@ func (c *Client) FetchSummary(ctx context.Context, nodeName string) (*Summary, e
 	defer cancel()
 
 	req := c.kubernetes.CoreV1().RESTClient().Get().
-		AbsPath("api/v1/nodes", nodeName, "proxy/stats/summary")
+		Resource("nodes").Name(nodeName).SubResource("proxy").Suffix("stats/summary")
 	raw, err := req.DoRaw(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("fetch summary for node %q: %w", nodeName, err)

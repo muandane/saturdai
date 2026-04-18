@@ -24,10 +24,13 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -38,6 +41,7 @@ import (
 const (
 	clusterProfileResyncInterval    = 90 * time.Second
 	clusterProfileDefaultMaxTargets = 200
+	clusterProfileFinalizer         = "autosize.saturdai.auto/cluster-profile"
 )
 
 // ClusterProfileReconciler reconciles a ClusterProfile object.
@@ -61,8 +65,25 @@ func (r *ClusterProfileReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if !profile.DeletionTimestamp.IsZero() {
-		logger.V(1).Info("skipping reconcile: ClusterProfile is deleting")
+		if !controllerutil.ContainsFinalizer(profile, clusterProfileFinalizer) {
+			logger.V(1).Info("skipping reconcile: ClusterProfile is deleting")
+			return ctrl.Result{}, nil
+		}
+		if _, err := syncClusterChildren(ctx, r.Client, profile, "ClusterProfile", autosizev1.PolicySpec{}, nil); err != nil {
+			return ctrl.Result{}, err
+		}
+		controllerutil.RemoveFinalizer(profile, clusterProfileFinalizer)
+		if err := r.Update(ctx, profile); err != nil {
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{}, nil
+	}
+	if !controllerutil.ContainsFinalizer(profile, clusterProfileFinalizer) {
+		controllerutil.AddFinalizer(profile, clusterProfileFinalizer)
+		if err := r.Update(ctx, profile); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	maxTargets := int(effectiveMaxTargets(profile.Spec.MaxTargets, clusterProfileDefaultMaxTargets))
@@ -147,7 +168,16 @@ func (r *ClusterProfileReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 }
 
 func (r *ClusterProfileReconciler) patchCSPStatus(ctx context.Context, profile *autosizev1.ClusterProfile) error {
-	return r.Status().Update(ctx, profile)
+	key := client.ObjectKeyFromObject(profile)
+	status := profile.Status
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		fresh := &autosizev1.ClusterProfile{}
+		if err := r.Get(ctx, key, fresh); err != nil {
+			return err
+		}
+		fresh.Status = status
+		return r.Status().Update(ctx, fresh)
+	})
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -184,21 +214,13 @@ func (r *ClusterProfileReconciler) allClusterProfiles(ctx context.Context) []ctr
 }
 
 func setCSPCondition(profile *autosizev1.ClusterProfile, typ string, status metav1.ConditionStatus, reason, message string) {
-	c := metav1.Condition{
+	apimeta.SetStatusCondition(&profile.Status.Conditions, metav1.Condition{
 		Type:               typ,
 		Status:             status,
 		Reason:             reason,
 		Message:            message,
 		ObservedGeneration: profile.Generation,
-		LastTransitionTime: metav1.Now(),
-	}
-	for i := range profile.Status.Conditions {
-		if profile.Status.Conditions[i].Type == typ {
-			profile.Status.Conditions[i] = c
-			return
-		}
-	}
-	profile.Status.Conditions = append(profile.Status.Conditions, c)
+	})
 }
 
 func groupKeysByNamespace(keys []target.WorkloadKey) map[string][]target.WorkloadKey {

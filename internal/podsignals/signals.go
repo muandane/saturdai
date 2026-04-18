@@ -1,4 +1,4 @@
-// Package podsignals derives OOM, restart, and throttle signals from pods and kubelet stats.
+// Package podsignals derives OOM and restart signals from pod status.
 package podsignals
 
 import (
@@ -8,17 +8,15 @@ import (
 
 // Snapshot holds per-container signals for one reconcile.
 type Snapshot struct {
-	LastOOMKill    map[string]*metav1.Time
-	RestartCount   map[string]int32
-	ThrottleRatios map[string]float64
+	LastOOMKill  map[string]*metav1.Time
+	RestartCount map[string]int32
 }
 
 // NewSnapshot builds an empty snapshot.
 func NewSnapshot() *Snapshot {
 	return &Snapshot{
-		LastOOMKill:    map[string]*metav1.Time{},
-		RestartCount:   map[string]int32{},
-		ThrottleRatios: map[string]float64{},
+		LastOOMKill:  map[string]*metav1.Time{},
+		RestartCount: map[string]int32{},
 	}
 }
 
@@ -44,12 +42,4 @@ func (s *Snapshot) MergePodStatus(pod *corev1.Pod) {
 			s.LastOOMKill[cs.Name] = t
 		}
 	}
-}
-
-// SetThrottleRatio stores throttledUsage/usage for a container (0 if unknown).
-func (s *Snapshot) SetThrottleRatio(container string, throttledNano, usageNano uint64) {
-	if usageNano == 0 {
-		return
-	}
-	s.ThrottleRatios[container] = float64(throttledNano) / float64(usageNano)
 }

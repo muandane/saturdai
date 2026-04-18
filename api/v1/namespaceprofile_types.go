@@ -52,6 +52,8 @@ type WorkloadKinds struct {
 }
 
 // PolicySpec holds the shared autosizing policy fields used by NamespaceProfile and ClusterProfile.
+// +kubebuilder:validation:XValidation:rule="!has(self.containers) || self.containers.all(c, !has(c.minCPU) || !has(c.maxCPU) || c.minCPU <= c.maxCPU)",message="containers.minCPU must be less than or equal to containers.maxCPU"
+// +kubebuilder:validation:XValidation:rule="!has(self.containers) || self.containers.all(c, !has(c.minMemory) || !has(c.maxMemory) || c.minMemory <= c.maxMemory)",message="containers.minMemory must be less than or equal to containers.maxMemory"
 type PolicySpec struct {
 	// Mode selects recommendation strategy: cost, balanced, resilience, or burst.
 	// +kubebuilder:validation:Enum=cost;balanced;resilience;burst
@@ -136,13 +138,13 @@ type NamespaceProfile struct {
 	metav1.TypeMeta `json:",inline"`
 
 	// +optional
-	metav1.ObjectMeta `json:"metadata,omitzero"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// +required
 	Spec NamespaceProfileSpec `json:"spec"`
 
 	// +optional
-	Status NamespaceProfileStatus `json:"status,omitzero"`
+	Status NamespaceProfileStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -150,7 +152,7 @@ type NamespaceProfile struct {
 // NamespaceProfileList contains a list of NamespaceProfile.
 type NamespaceProfileList struct {
 	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitzero"`
+	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []NamespaceProfile `json:"items"`
 }
 

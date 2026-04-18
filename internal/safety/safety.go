@@ -62,16 +62,6 @@ func Apply(
 		}
 	}
 
-	for i := range out {
-		name := out[i].ContainerName
-		if r, ok := sig.ThrottleRatios[name]; ok && r > 0.5 {
-			q := out[i].CPULimit
-			mv := q.MilliValue()
-			out[i].CPULimit = *resource.NewMilliQuantity(int64(math.Ceil(float64(mv)*1.25)), resource.DecimalSI)
-			out[i].Rationale = out[i].Rationale + "; override: high CPU throttle"
-		}
-	}
-
 	applyDecreaseClamps(out, current, skipMem, blockDownsize)
 
 	cooldown := time.Duration(defaults.Cooldown(profile.Spec)) * time.Minute
@@ -84,13 +74,6 @@ func Apply(
 			break
 		}
 	}
-	for _, r := range sig.ThrottleRatios {
-		if r > 0.5 {
-			shouldPatch = true
-			break
-		}
-	}
-
 	return Result{
 		Recommendations: out,
 		ShouldPatch:     shouldPatch,

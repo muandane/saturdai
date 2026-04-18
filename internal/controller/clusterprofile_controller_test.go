@@ -60,6 +60,10 @@ var _ = Describe("ClusterProfile Controller", func() {
 				NamespacedName: client.ObjectKeyFromObject(csp),
 			})
 			Expect(err).NotTo(HaveOccurred())
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(csp),
+			})
+			Expect(err).NotTo(HaveOccurred())
 
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(csp), csp)).To(Succeed())
 			Expect(csp.Status.ResolvedCount).To(Equal(int32(0)))
@@ -113,12 +117,44 @@ var _ = Describe("ClusterProfile Controller", func() {
 				NamespacedName: client.ObjectKeyFromObject(csp),
 			})
 			Expect(err).NotTo(HaveOccurred())
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(csp),
+			})
+			Expect(err).NotTo(HaveOccurred())
 
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(csp), csp)).To(Succeed())
 			Expect(csp.Status.ResolvedCount).To(BeNumerically(">=", int32(1)))
 			Expect(csp.Status.ActiveChildren).To(BeNumerically(">=", int32(1)))
+			children := &autosizev1.WorkloadProfileList{}
+			Expect(k8sClient.List(ctx, children,
+				client.MatchingLabels{
+					autosizev1.LabelManagedBy:  "true",
+					autosizev1.LabelParentKind: "ClusterProfile",
+					autosizev1.LabelParentName: csp.Name,
+				},
+			)).To(Succeed())
+			Expect(children.Items).NotTo(BeEmpty())
 
 			Expect(k8sClient.Delete(ctx, csp)).To(Succeed())
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(csp),
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, client.ObjectKeyFromObject(csp), &autosizev1.ClusterProfile{})
+				return errors.IsNotFound(err)
+			}).Should(BeTrue())
+
+			pruned := &autosizev1.WorkloadProfileList{}
+			Expect(k8sClient.List(ctx, pruned,
+				client.MatchingLabels{
+					autosizev1.LabelManagedBy:  "true",
+					autosizev1.LabelParentKind: "ClusterProfile",
+					autosizev1.LabelParentName: csp.Name,
+				},
+			)).To(Succeed())
+			Expect(pruned.Items).To(BeEmpty())
 			Expect(k8sClient.Delete(ctx, dep)).To(Succeed())
 		})
 	})

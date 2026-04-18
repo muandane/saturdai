@@ -45,3 +45,31 @@ func TestApplyLastOOMKillFromSnapshot_copiesTime(t *testing.T) {
 		t.Fatalf("reassigning source variable changed status: got %v want %v", st.Stats.LastOOMKill.Time, want)
 	}
 }
+
+func TestPersistedLastOOMKill_usesStoredValueWhenObservationMissing(t *testing.T) {
+	now := time.Date(2026, 4, 18, 16, 0, 0, 0, time.UTC)
+	previous := metav1.NewTime(now.Add(-5 * time.Minute))
+	store := map[string]*metav1.Time{"app": &previous}
+
+	got := persistedLastOOMKill(now, "app", nil, store)
+	if got == nil {
+		t.Fatal("expected non-nil OOM timestamp")
+	}
+	if !got.Equal(&previous) {
+		t.Fatalf("got %v want %v", got.Time, previous.Time)
+	}
+}
+
+func TestPersistedLastOOMKill_expiresOldValue(t *testing.T) {
+	now := time.Date(2026, 4, 18, 16, 0, 0, 0, time.UTC)
+	old := metav1.NewTime(now.Add(-11 * time.Minute))
+	store := map[string]*metav1.Time{"app": &old}
+
+	got := persistedLastOOMKill(now, "app", nil, store)
+	if got != nil {
+		t.Fatalf("expected nil after expiration, got %v", got.Time)
+	}
+	if _, ok := store["app"]; ok {
+		t.Fatal("expected expired key removed from store")
+	}
+}

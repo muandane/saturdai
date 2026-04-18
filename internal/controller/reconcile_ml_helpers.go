@@ -104,4 +104,9 @@ func pruneMLState(ml *mlstate.MLState, active []string) {
 			delete(ml.HW, k)
 		}
 	}
+	for k := range ml.LastOOMKill {
+		if _, ok := activeSet[k]; !ok {
+			delete(ml.LastOOMKill, k)
+		}
+	}
 }

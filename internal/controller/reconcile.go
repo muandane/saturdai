@@ -11,6 +11,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -177,12 +178,9 @@ func (r *WorkloadProfileReconciler) runObserveAndActuate(
 	for _, cname := range tplNames {
 		st := byName[cname]
 
-		perNode, cpuMilli, memBytes, throttled, usage := collectUsageBreakdown(summaries, ns, pods, cname)
+		perNode, cpuMilli, memBytes := collectUsageBreakdown(summaries, ns, pods, cname)
 		if h := cpuHeteroScore(perNode); h > maxHetero {
 			maxHetero = h
-		}
-		if throttled > 0 && usage > 0 {
-			sig.SetThrottleRatio(cname, throttled, usage)
 		}
 
 		fCPU, fMem, err := r.ingestContainerMetrics(logger, profile, mlState, &st, cname, cpuMilli, memBytes, perNode)
@@ -191,11 +189,18 @@ func (r *WorkloadProfileReconciler) runObserveAndActuate(
 		}
 		forecasts[cname] = struct{ CPU, Mem float64 }{CPU: fCPU, Mem: fMem}
 
+		mergedOOM := persistedLastOOMKill(r.now(), cname, sig.LastOOMKill[cname], mlState.LastOOMKill)
+		if mergedOOM == nil {
+			delete(sig.LastOOMKill, cname)
+		} else {
+			sig.LastOOMKill[cname] = mergedOOM
+		}
+
 		observedAt := metav1.NewTime(r.now())
 		st.Stats.CPU.LastUpdated = &observedAt
 		st.Stats.Memory.LastUpdated = &observedAt
 
-		applyLastOOMKillFromSnapshot(&st, sig.LastOOMKill[cname])
+		applyLastOOMKillFromSnapshot(&st, mergedOOM)
 
 		prevRestart := st.Stats.RestartCount
 		currentMax := sig.RestartCount[cname]
@@ -445,21 +450,13 @@ func currentResourcesFromTemplate(obj runtime.Object, names []string) (map[strin
 }
 
 func setCondition(profile *autosizev1.WorkloadProfile, typ string, status metav1.ConditionStatus, reason, message string) {
-	c := metav1.Condition{
+	apimeta.SetStatusCondition(&profile.Status.Conditions, metav1.Condition{
 		Type:               typ,
 		Status:             status,
 		Reason:             reason,
 		Message:            message,
 		ObservedGeneration: profile.Generation,
-		LastTransitionTime: metav1.Now(),
-	}
-	for i := range profile.Status.Conditions {
-		if profile.Status.Conditions[i].Type == typ {
-			profile.Status.Conditions[i] = c
-			return
-		}
-	}
-	profile.Status.Conditions = append(profile.Status.Conditions, c)
+	})
 }
 
 func conditionStatus(profile *autosizev1.WorkloadProfile, typ string) metav1.ConditionStatus {

@@ -1,6 +1,8 @@
 package mlstate
 
 import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/muandane/saturdai/internal/aggregate"
 	"github.com/muandane/saturdai/internal/changepoint"
 	"github.com/muandane/saturdai/internal/recommend"
@@ -8,9 +10,10 @@ import (
 
 // MLState holds learned controller state for one WorkloadProfile (ConfigMap JSON, not CR status).
 type MLState struct {
-	CUSUM    map[string]*ContainerCUSUM              `json:"cusum,omitempty"`
-	Feedback map[string]*recommend.ContainerFeedback `json:"feedback,omitempty"`
-	HW       map[string]*ContainerHW                 `json:"hw,omitempty"`
+	CUSUM       map[string]*ContainerCUSUM              `json:"cusum,omitempty"`
+	Feedback    map[string]*recommend.ContainerFeedback `json:"feedback,omitempty"`
+	HW          map[string]*ContainerHW                 `json:"hw,omitempty"`
+	LastOOMKill map[string]*metav1.Time                 `json:"lastOOMKill,omitempty"`
 }
 
 // ContainerCUSUM is CUSUM state per resource for one container.
@@ -28,8 +31,9 @@ type ContainerHW struct {
 // New returns an empty MLState with initialized maps.
 func New() *MLState {
 	return &MLState{
-		CUSUM:    map[string]*ContainerCUSUM{},
-		Feedback: map[string]*recommend.ContainerFeedback{},
-		HW:       map[string]*ContainerHW{},
+		CUSUM:       map[string]*ContainerCUSUM{},
+		Feedback:    map[string]*recommend.ContainerFeedback{},
+		HW:          map[string]*ContainerHW{},
+		LastOOMKill: map[string]*metav1.Time{},
 	}
 }

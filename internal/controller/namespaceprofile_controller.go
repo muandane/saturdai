@@ -23,8 +23,10 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -127,7 +129,16 @@ func (r *NamespaceProfileReconciler) Reconcile(ctx context.Context, req ctrl.Req
 }
 
 func (r *NamespaceProfileReconciler) patchNSPStatus(ctx context.Context, profile *autosizev1.NamespaceProfile) error {
-	return r.Status().Update(ctx, profile)
+	key := client.ObjectKeyFromObject(profile)
+	status := profile.Status
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		fresh := &autosizev1.NamespaceProfile{}
+		if err := r.Get(ctx, key, fresh); err != nil {
+			return err
+		}
+		fresh.Status = status
+		return r.Status().Update(ctx, fresh)
+	})
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -157,21 +168,13 @@ func (r *NamespaceProfileReconciler) mapWorkloadToNSP(ctx context.Context, obj c
 }
 
 func setNSPCondition(profile *autosizev1.NamespaceProfile, typ string, status metav1.ConditionStatus, reason, message string) {
-	c := metav1.Condition{
+	apimeta.SetStatusCondition(&profile.Status.Conditions, metav1.Condition{
 		Type:               typ,
 		Status:             status,
 		Reason:             reason,
 		Message:            message,
 		ObservedGeneration: profile.Generation,
-		LastTransitionTime: metav1.Now(),
-	}
-	for i := range profile.Status.Conditions {
-		if profile.Status.Conditions[i].Type == typ {
-			profile.Status.Conditions[i] = c
-			return
-		}
-	}
-	profile.Status.Conditions = append(profile.Status.Conditions, c)
+	})
 }
 
 func effectiveMaxTargets(specMax *int32, defaultMax int) int32 {

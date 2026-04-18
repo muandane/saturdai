@@ -52,6 +52,8 @@ type ContainerOverride struct {
 }
 
 // WorkloadProfileSpec defines the desired state of WorkloadProfile.
+// +kubebuilder:validation:XValidation:rule="!has(self.containers) || self.containers.all(c, !has(c.minCPU) || !has(c.maxCPU) || c.minCPU <= c.maxCPU)",message="containers.minCPU must be less than or equal to containers.maxCPU"
+// +kubebuilder:validation:XValidation:rule="!has(self.containers) || self.containers.all(c, !has(c.minMemory) || !has(c.maxMemory) || c.minMemory <= c.maxMemory)",message="containers.minMemory must be less than or equal to containers.maxMemory"
 type WorkloadProfileSpec struct {
 	// TargetRef selects the Deployment or StatefulSet to manage.
 	TargetRef WorkloadTargetRef `json:"targetRef"`
@@ -230,13 +232,13 @@ type WorkloadProfile struct {
 	metav1.TypeMeta `json:",inline"`
 
 	// +optional
-	metav1.ObjectMeta `json:"metadata,omitzero"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// +required
 	Spec WorkloadProfileSpec `json:"spec"`
 
 	// +optional
-	Status WorkloadProfileStatus `json:"status,omitzero"`
+	Status WorkloadProfileStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -244,7 +246,7 @@ type WorkloadProfile struct {
 // WorkloadProfileList contains a list of WorkloadProfile.
 type WorkloadProfileList struct {
 	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitzero"`
+	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []WorkloadProfile `json:"items"`
 }
 
